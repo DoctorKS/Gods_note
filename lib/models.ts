@@ -1,4 +1,5 @@
 export const MAX_BATCH_IMAGES = 10;
+export const MAX_UPLOAD_BYTES = 400_000;
 export const DEFAULT_PAGE_RATIO = 0.75;
 
 export type Collection = { id: string; title: string };
@@ -33,6 +34,7 @@ export interface NoteRepository {
   list(): Promise<Library>;
   createCollection(collection: Collection): Promise<Collection>;
   createNote(note: NewNote): Promise<Note>;
+  renameNote(id: string, title: string): Promise<void>;
   openNote(id: string): Promise<NotePage>;
   saveInk(id: string, strokes: Stroke[]): Promise<void>;
   imageUrl(path: string): Promise<string>;

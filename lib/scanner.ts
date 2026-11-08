@@ -1,3 +1,5 @@
+import { MAX_UPLOAD_BYTES } from "./models";
+
 export type Point = { x: number; y: number };
 export type Corners = [Point, Point, Point, Point];
 
@@ -84,6 +86,20 @@ function jpeg(canvas: HTMLCanvasElement, quality: number) {
   }, "image/jpeg", quality));
 }
 
+async function jpegForUpload(canvas: HTMLCanvasElement, preferredQuality: number) {
+  let source = canvas;
+  while (true) {
+    for (const quality of [preferredQuality, 0.82, 0.72]) {
+      const blob = await jpeg(source, quality);
+      if (blob.size <= MAX_UPLOAD_BYTES) return { blob, ratio: source.width / source.height };
+    }
+    if (source.width === 1 && source.height === 1) throw new Error("Could not compress the scan to 400 KB.");
+    const smaller = canvasAt(Math.floor(source.width * 0.8), Math.floor(source.height * 0.8));
+    context2d(smaller).drawImage(source, 0, 0, smaller.width, smaller.height);
+    source = smaller;
+  }
+}
+
 export async function prepareImage(file: File): Promise<PreparedImage> {
   const canvas = await loadImage(file, 1800);
   const scale = Math.min(1, 760 / Math.max(canvas.width, canvas.height));
@@ -112,6 +128,6 @@ export async function scanImage(original: Blob, corners: Corners): Promise<Scan>
   const scale = Math.min(1, 360 / Math.max(full.width, full.height));
   const cover = canvasAt(full.width * scale, full.height * scale);
   context2d(cover).drawImage(full, 0, 0, cover.width, cover.height);
-  const [image, thumbnail] = await Promise.all([jpeg(full, 0.92), jpeg(cover, 0.87)]);
-  return { image, thumbnail, ratio: full.width / full.height };
+  const [image, thumbnail] = await Promise.all([jpegForUpload(full, 0.92), jpegForUpload(cover, 0.87)]);
+  return { image: image.blob, thumbnail: thumbnail.blob, ratio: image.ratio };
 }

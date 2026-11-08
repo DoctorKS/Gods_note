@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { get, update } from "idb-keyval";
-import { DEFAULT_PAGE_RATIO, type Library, type Note, type NotePage, type NoteRepository } from "./models";
+import { DEFAULT_PAGE_RATIO, MAX_UPLOAD_BYTES, type Library, type Note, type NotePage, type NoteRepository } from "./models";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -47,6 +47,9 @@ export function cloudRepository(owner: string): NoteRepository {
       return unwrap(await client.from("collections").upsert(collection).select("id,title").single());
     },
     async createNote(note) {
+      if ([note.image, note.thumbnail].some((image) => image && image.size > MAX_UPLOAD_BYTES)) {
+        throw new Error("Each uploaded image must be 400 KB or smaller.");
+      }
       const folder = `${owner}/${note.id}`;
       const imagePath = note.image ? `${folder}/scan.jpg` : null;
       const coverPath = note.thumbnail ? `${folder}/cover.jpg` : null;
@@ -61,6 +64,9 @@ export function cloudRepository(owner: string): NoteRepository {
         p_page_ratio: note.ratio ?? DEFAULT_PAGE_RATIO,
       }).single());
       return fromNoteRow(row);
+    },
+    async renameNote(id, title) {
+      unwrap(await client.from("notes").update({ title }).eq("id", id).select("id").single());
     },
     async openNote(id) {
       const page = unwrap<PageRow>(await client.from("note_pages").select("image_path,page_ratio,strokes").eq("note_id", id).eq("page_number", 1).single());
@@ -116,6 +122,15 @@ export const demoRepository: NoteRepository = {
       return library;
     });
     return note;
+  },
+  async renameNote(id, title) {
+    await update<DemoLibrary>(demoKey, (stored) => {
+      const library = stored ?? createDemoLibrary();
+      const note = library.notes.find((entry) => entry.id === id);
+      if (!note) throw new Error("This note could not be found.");
+      note.title = title;
+      return library;
+    });
   },
   async openNote(id) {
     const library = await get<DemoLibrary>(demoKey) ?? createDemoLibrary();

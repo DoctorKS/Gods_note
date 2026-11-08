@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { ArrowLeft, Check, Eraser, Highlighter, LoaderCircle, PenLine, Save, Undo2 } from "lucide-react";
+import { ArrowLeft, Check, Eraser, Highlighter, LoaderCircle, Pencil, PenLine, Save, Undo2 } from "lucide-react";
 import type { InkPoint, Note, NotePage, NoteRepository, Stroke } from "../lib/models";
 import { MediaImage, PreviewSheet } from "./ui";
 
@@ -13,7 +13,15 @@ const colors = [
   { name: "Yellow", value: "#efb700" },
 ];
 
-export function NoteEditor({ note, repository, onBack }: { note: Note; repository: NoteRepository; onBack: () => void }) {
+type EditorProps = { note: Note; repository: NoteRepository; onBack: () => void; onRename: () => void };
+
+function EditorTitle({ title, onRename, disabled }: { title: string; onRename: () => void; disabled?: boolean }) {
+  return <h1><button type="button" className="editor-title-button" title="Rename document" aria-label={`Rename ${title}`} onClick={onRename} disabled={disabled}>
+    <span>{title}</span><Pencil size={15} />
+  </button></h1>;
+}
+
+export function NoteEditor({ note, repository, onBack, onRename }: EditorProps) {
   const [page, setPage] = useState<NotePage>();
   const [error, setError] = useState("");
   const [load, setLoad] = useState(0);
@@ -27,9 +35,9 @@ export function NoteEditor({ note, repository, onBack }: { note: Note; repositor
     return () => { active = false; };
   }, [load, note.id, repository]);
 
-  if (page) return <WritingSurface note={note} page={page} repository={repository} onBack={onBack} />;
+  if (page) return <WritingSurface note={note} page={page} repository={repository} onBack={onBack} onRename={onRename} />;
   return <main className="editor">
-    <header className="editor-header"><button className="button text-button" onClick={onBack}><ArrowLeft size={19} /> Library</button><h1>{note.title}</h1></header>
+    <header className="editor-header"><button className="button text-button" onClick={onBack}><ArrowLeft size={19} /> Library</button><EditorTitle title={note.title} onRename={onRename} /></header>
     <div className="empty-state editor-state">{error ? <><p role="alert">{error}</p><button className="button secondary" onClick={() => { setError(""); setLoad((value) => value + 1); }}>Try again</button></> : <p role="status">Opening note…</p>}</div>
   </main>;
 }
@@ -75,7 +83,7 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: nu
   context.restore();
 }
 
-function WritingSurface({ note, page, repository, onBack }: { note: Note; page: NotePage; repository: NoteRepository; onBack: () => void }) {
+function WritingSurface({ note, page, repository, onBack, onRename }: EditorProps & { page: NotePage }) {
   const [tool, setTool] = useState<Stroke["tool"]>("pen");
   const [color, setColor] = useState(colors[0].value);
   const [pencilOnly, setPencilOnly] = useState(true);
@@ -210,7 +218,7 @@ function WritingSurface({ note, page, repository, onBack }: { note: Note; page: 
   return <main className="editor">
     <header className="editor-header">
       <button className="button text-button" onClick={() => void goBack()} disabled={leaving}><ArrowLeft size={19} /> Library</button>
-      <h1>{note.title}</h1>
+      <EditorTitle title={note.title} onRename={onRename} disabled={leaving} />
       <div className="editor-save">
         <span role="status" className={status === "error" ? "form-error" : "muted"}>
           {status === "saved" ? <><Check size={16} /> Saved</> : status === "saving" ? <><LoaderCircle size={16} className="spinner" /> Saving…</> : status === "error" ? "Save failed" : "Unsaved changes"}

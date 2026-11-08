@@ -97,8 +97,10 @@ svg { flex-shrink: 0; }
 .folder-icon { display: grid; place-items: center; width: 28px; height: 28px; color: var(--blue-deep); background: var(--blue-pale); border-radius: 8px; }
 .count-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 3px 9px; background: #edf2fa; color: #4d5f7b; font-weight: 700; font-size: .73rem; white-space: nowrap; }
 .note-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px 12px; }
-.note-card { min-width: 0; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 3px 3px 4px; text-align: center; }
+.note-tile { position: relative; min-width: 0; }
+.note-card { display: block; width: 100%; min-width: 0; border: 1px solid transparent; border-radius: 10px; background: transparent; padding: 3px 3px 4px; text-align: center; }
 .note-card:hover { background: #f3f6ff; border-color: #d9e3fd; }
+.note-options { position: absolute; top: 7px; right: 7px; width: 36px; min-height: 36px; border-color: var(--border); background: #fffffff2; }
 .note-cover {
   display: flex; justify-content: center; align-items: center; height: clamp(86px, 14vh, 150px);
   border: 1px solid #e6ebf4; border-radius: 7px; overflow: hidden;
@@ -182,7 +184,11 @@ svg { flex-shrink: 0; }
 
 .editor { min-height: 100dvh; background: #edf1f8; }
 .editor-header { min-height: 63px; display: grid; grid-template-columns: 1fr minmax(0, 2fr) 1fr; gap: 10px; align-items: center; justify-items: start; padding: 6px 19px; background: white; border-bottom: 1px solid var(--border); }
-.editor-header h1 { font-size: 1.1rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; justify-self: center; }
+.editor-header h1 { font-size: 1.1rem; min-width: 0; max-width: 100%; justify-self: center; }
+.editor-title-button { display: flex; align-items: center; gap: 7px; max-width: 100%; min-height: 42px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; }
+.editor-title-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-title-button svg { color: var(--muted); }
+.editor-title-button:enabled:hover { background: var(--blue-pale); }
 .editor-save { justify-self: end; display: flex; align-items: center; gap: 3px; }
 .editor-save span { display: flex; align-items: center; gap: 4px; font-size: .8rem; }
 .editor-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: center; align-items: center; gap: 12px; padding: 7px 10px; background: #fcfdff; border-bottom: 1px solid var(--border); }

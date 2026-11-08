@@ -111,7 +111,7 @@ export function BatchImport({ collections, destination, repository, onClose, onS
     }
   }
 
-  return <Dialog title="Batch upload" description="Scan up to 10 images at a time. Each image becomes a separate note." onClose={onClose} wide busy={Boolean(busy)}>
+  return <Dialog title="Batch upload" description="Scan up to 10 images at a time. Each image becomes a separate note and is compressed to 400 KB or less." onClose={onClose} wide busy={Boolean(busy)}>
     <div className="batch-content">
       <div className="batch-options">
         <label>Destination table<select aria-label="Destination table" value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={Boolean(busy) || attempted}>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Plus, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Plus, Search, X } from "lucide-react";
 import { cloudRepository, demoRepository, supabase } from "../lib/repository";
 import type { Collection, Library, Note, NoteRepository } from "../lib/models";
 import { Dialog, MediaImage, PreviewSheet } from "./ui";
@@ -83,6 +83,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const [collection, setCollection] = useState("");
   const [modal, setModal] = useState<"collection" | "blank" | "batch">();
   const [openNote, setOpenNote] = useState<Note>();
+  const [noteToRename, setNoteToRename] = useState<Note>();
   const [scrollPosition, setScrollPosition] = useState(0);
   const [notice, setNotice] = useState("");
 
@@ -128,7 +129,18 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const shownGroups = collections.filter(({ id }) => (!collection || id === collection) && (!query.trim() || visible.has(id)));
   const visibleCount = shownGroups.reduce((count, group) => count + (visible.get(group.id)?.length ?? 0), 0);
 
-  if (openNote) return <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} />;
+  const renameDialog = noteToRename && <RenameDialog note={noteToRename} onClose={() => setNoteToRename(undefined)} onSubmit={async (title) => {
+    const { id } = noteToRename;
+    await repository.renameNote(id, title);
+    setLibrary((current) => current && ({ ...current, notes: current.notes.map((note) => note.id === id ? { ...note, title } : note) }));
+    setOpenNote((current) => current?.id === id ? { ...current, title } : current);
+    setNoteToRename(undefined);
+  }} />;
+
+  if (openNote) return <>
+    <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} onRename={() => setNoteToRename(openNote)} />
+    {renameDialog}
+  </>;
 
   return <div className="workspace">
     <header className="topbar">
@@ -183,10 +195,15 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
                 return <section className="collection" key={group.id} aria-label={group.title}>
                   <div className="collection-heading"><span className="folder-icon"><Folder size={16} /></span><h2>{group.title}</h2><span className="count-badge">{notes.length}</span></div>
                   {notes.length > 0 ? <div className="note-grid">{notes.map((note) =>
-                    <button className="note-card" key={note.id} type="button" title={note.title} onClick={() => showNote(note)}>
-                      <span className="note-cover">{note.cover ? <MediaImage source={note.cover} repository={repository} className="cover-image" lazy /> : <PreviewSheet title={note.title} sample={note.sample} />}</span>
-                      <span className="note-name">{note.title}</span>
-                    </button>)}</div> : <div className="empty-collection"><Images size={21} /><span>Add a document or blank note to this table.</span></div>}
+                    <div className="note-tile" key={note.id}>
+                      <button className="note-card" type="button" title={note.title} onClick={() => showNote(note)}>
+                        <span className="note-cover">{note.cover ? <MediaImage source={note.cover} repository={repository} className="cover-image" lazy /> : <PreviewSheet title={note.title} sample={note.sample} />}</span>
+                        <span className="note-name">{note.title}</span>
+                      </button>
+                      <button className="icon-button note-options" type="button" aria-label={`Rename ${note.title}`} title="Rename document" onClick={() => setNoteToRename(note)}>
+                        <Ellipsis size={18} />
+                      </button>
+                    </div>)}</div> : <div className="empty-collection"><Images size={21} /><span>Add a document or blank note to this table.</span></div>}
                 </section>;
               })}
             </div>
@@ -211,7 +228,43 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         setModal(undefined); setQuery(""); setCollection(collectionId);
         setNotice(`${count} ${count === 1 ? "document" : "documents"} saved.`);
       }} />}
+    {renameDialog}
   </div>;
+}
+
+function RenameDialog({ note, onClose, onSubmit }: {
+  note: Note;
+  onClose: () => void;
+  onSubmit: (title: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    const title = String(new FormData(event.currentTarget).get("title")).trim();
+    if (!title) { setError("Enter a document name."); return; }
+    if (title === note.title) { onClose(); return; }
+    setError("");
+    setBusy(true);
+    try { await onSubmit(title); }
+    catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not rename this document.");
+      setBusy(false);
+    }
+  }
+
+  return <Dialog title="Rename document" description="Enter a new name for this document." onClose={onClose} busy={busy}>
+    <form className="form-stack" onSubmit={submit}>
+      <label>Document name<input name="title" autoFocus onFocus={(event) => event.currentTarget.select()} required maxLength={160} defaultValue={note.title} readOnly={busy} /></label>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      <div className="dialog-actions">
+        <button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button>
+        <button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save name"}</button>
+      </div>
+    </form>
+  </Dialog>;
 }
 
 function CreateDialog({ kind, collections, destination, onClose, onSubmit }: {
