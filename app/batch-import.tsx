@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
-import { Check, Crop, ImagePlus, Images, LoaderCircle, ScanLine, X } from "lucide-react";
-import { MAX_BATCH_IMAGES, type Collection, type Note, type NoteRepository } from "../lib/models";
+import { Check, CircleAlert, Crop, ImagePlus, Images, LoaderCircle, ScanLine, X } from "lucide-react";
+import { MAX_BATCH_IMAGES, noteNameKey, type Collection, type Note, type NoteRepository } from "../lib/models";
 import { FULL_IMAGE, prepareImage, scanImage, type Corners, type Point, type PreparedImage, type Scan } from "../lib/scanner";
 import { Dialog, MediaImage } from "./ui";
 
@@ -19,6 +19,7 @@ type BatchItem = {
 
 type BatchProps = {
   collections: Collection[];
+  notes: Note[];
   destination: string;
   repository: NoteRepository;
   onClose: () => void;
@@ -26,7 +27,7 @@ type BatchProps = {
   onDone: (count: number, collectionId: string) => void;
 };
 
-export function BatchImport({ collections, destination, repository, onClose, onSaved, onDone }: BatchProps) {
+export function BatchImport({ collections, notes, destination, repository, onClose, onSaved, onDone }: BatchProps) {
   const [items, setItems] = useState<BatchItem[]>([]);
   const [currentId, setCurrentId] = useState("");
   const [collectionId, setCollectionId] = useState(destination || collections[0]?.id || "");
@@ -37,7 +38,13 @@ export function BatchImport({ collections, destination, repository, onClose, onS
   const fileInput = useRef<HTMLInputElement>(null);
   const current = items.find(({ id }) => id === currentId) ?? items[0];
   const unsaved = items.filter((item) => !item.saved);
-  const canSave = unsaved.length > 0 && Boolean(collectionId) && unsaved.every(({ title, result }) => title.trim() && result);
+  const names = new Map<string, number>();
+  for (const { title } of [...notes, ...unsaved]) {
+    const key = noteNameKey(title);
+    if (key) names.set(key, (names.get(key) ?? 0) + 1);
+  }
+  const duplicates = new Set(unsaved.filter(({ title }) => (names.get(noteNameKey(title)) ?? 0) > 1).map(({ id }) => id));
+  const canSave = unsaved.length > 0 && Boolean(collectionId) && duplicates.size === 0 && unsaved.every(({ title, result }) => title.trim() && result);
 
   function patchItem(id: string, changes: Partial<BatchItem>) {
     setItems((list) => list.map((item) => item.id === id ? { ...item, ...changes } : item));
@@ -138,6 +145,7 @@ export function BatchImport({ collections, destination, repository, onClose, onS
             </span>
             <span>{item.title || "Untitled"}</span>
             {item.saved && <Check size={15} className="success-text" aria-label="Saved" />}
+            {duplicates.has(item.id) && <CircleAlert size={15} className="danger-text" aria-label="Duplicate name" />}
           </button>)}
           {!attempted && items.length < MAX_BATCH_IMAGES && <button className="button secondary batch-add" disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}><ImagePlus size={17} /> Add images</button>}
         </div>
@@ -157,7 +165,8 @@ export function BatchImport({ collections, destination, repository, onClose, onS
           {!current.prepared?.corners && current.prepared && !current.result && !current.error && <p className="muted">Automatic detection could not find a clear edge. Drag the four handles around the paper.</p>}
           {current.error && <p className="form-error" role="alert">{current.error}</p>}
           <div className="review-controls">
-            <label>Document name<input value={current.title} maxLength={160} disabled={Boolean(busy) || attempted} onChange={(event) => patchItem(current.id, { title: event.target.value })} /></label>
+            <label>Document name<input value={current.title} maxLength={160} disabled={Boolean(busy) || current.saved}
+              aria-invalid={duplicates.has(current.id)} onChange={(event) => patchItem(current.id, { title: event.target.value })} /></label>
             {current.prepared && !attempted && <button className="button secondary" disabled={Boolean(busy) || Boolean(current.result)} onClick={() => void applyCrop(current)}><Crop size={17} /> Apply crop</button>}
             {!attempted && <button className="icon-button" aria-label="Remove selected image" disabled={Boolean(busy)} onClick={() => {
               setItems((list) => list.filter(({ id }) => id !== current.id));
@@ -166,6 +175,7 @@ export function BatchImport({ collections, destination, repository, onClose, onS
           </div>
         </div>}
       </>}
+      {duplicates.size > 0 && <p className="form-error" role="alert">Document names must be unique. Rename the marked images before saving.</p>}
       {message && <p className="form-error" role="alert">{message}</p>}
       <div className="dialog-actions">
         {busy && <span className="busy-label" role="status"><LoaderCircle size={16} className="spinner" />{busy}</span>}

@@ -41,6 +41,9 @@ svg { flex-shrink: 0; }
 .secondary { border-color: var(--border); background: var(--surface); }
 .secondary:enabled:hover { background: #f7f9ff; border-color: #a9baf0; }
 .text-button { color: var(--blue-deep); background: transparent; }
+.danger-text { color: var(--danger); }
+.danger { color: white; background: var(--danger); }
+.danger:enabled:hover { background: #832539; }
 
 .topbar { position: sticky; top: 0; z-index: 3; background: var(--surface); border-bottom: 1px solid var(--border); }
 .topbar-inner { max-width: 1740px; height: 62px; padding: 0 28px; margin: auto; display: flex; align-items: center; justify-content: space-between; }
@@ -142,6 +145,8 @@ svg { flex-shrink: 0; }
 .dialog-head h2 { font-size: 1.5rem; letter-spacing: -.032em; }
 .dialog-head p { margin-top: 4px; color: var(--muted); font-size: .87rem; line-height: 1.4; }
 .dialog-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 9px; }
+.document-actions { display: grid; gap: 8px; }
+.document-actions .button { justify-content: flex-start; }
 .batch-content { display: grid; gap: 12px; }
 .batch-options { display: flex; gap: 12px; justify-content: space-between; align-items: flex-end; }
 .batch-options label { width: min(100%, 245px); }

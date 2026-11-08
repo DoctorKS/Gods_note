@@ -13,6 +13,21 @@ export type Note = {
   sample?: number;
 };
 
+export class DuplicateNoteNameError extends Error {
+  constructor() { super("A document with this name already exists."); }
+}
+
+export function noteNameKey(title: string) {
+  return title.trim().toLowerCase();
+}
+
+export function assertNoteNameAvailable(notes: Note[], title: string, exceptId: string) {
+  const key = noteNameKey(title);
+  if (notes.some((note) => note.id !== exceptId && noteNameKey(note.title) === key)) {
+    throw new DuplicateNoteNameError();
+  }
+}
+
 export type InkPoint = { x: number; y: number; pressure: number };
 export type Stroke = { points: InkPoint[]; color: string; tool: "pen" | "highlighter" | "eraser" };
 
@@ -35,6 +50,7 @@ export interface NoteRepository {
   createCollection(collection: Collection): Promise<Collection>;
   createNote(note: NewNote): Promise<Note>;
   renameNote(id: string, title: string): Promise<void>;
+  deleteNote(id: string): Promise<void>;
   openNote(id: string): Promise<NotePage>;
   saveInk(id: string, strokes: Stroke[]): Promise<void>;
   imageUrl(path: string): Promise<string>;

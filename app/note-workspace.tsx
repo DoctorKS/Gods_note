@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Plus, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { cloudRepository, demoRepository, supabase } from "../lib/repository";
-import type { Collection, Library, Note, NoteRepository } from "../lib/models";
+import { assertNoteNameAvailable, type Collection, type Library, type Note, type NoteRepository } from "../lib/models";
 import { Dialog, MediaImage, PreviewSheet } from "./ui";
 
 const BatchImport = dynamic(() => import("./batch-import").then((module) => module.BatchImport));
@@ -83,7 +83,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const [collection, setCollection] = useState("");
   const [modal, setModal] = useState<"collection" | "blank" | "batch">();
   const [openNote, setOpenNote] = useState<Note>();
-  const [noteToRename, setNoteToRename] = useState<Note>();
+  const [documentAction, setDocumentAction] = useState<{ kind: "menu" | "rename" | "delete"; note: Note }>();
   const [scrollPosition, setScrollPosition] = useState(0);
   const [notice, setNotice] = useState("");
 
@@ -129,16 +129,17 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const shownGroups = collections.filter(({ id }) => (!collection || id === collection) && (!query.trim() || visible.has(id)));
   const visibleCount = shownGroups.reduce((count, group) => count + (visible.get(group.id)?.length ?? 0), 0);
 
-  const renameDialog = noteToRename && <RenameDialog note={noteToRename} onClose={() => setNoteToRename(undefined)} onSubmit={async (title) => {
-    const { id } = noteToRename;
+  const renameDialog = documentAction?.kind === "rename" && <RenameDialog note={documentAction.note} onClose={() => setDocumentAction(undefined)} onSubmit={async (title) => {
+    const { id } = documentAction.note;
+    assertNoteNameAvailable(library?.notes ?? [], title, id);
     await repository.renameNote(id, title);
     setLibrary((current) => current && ({ ...current, notes: current.notes.map((note) => note.id === id ? { ...note, title } : note) }));
     setOpenNote((current) => current?.id === id ? { ...current, title } : current);
-    setNoteToRename(undefined);
+    setDocumentAction(undefined);
   }} />;
 
   if (openNote) return <>
-    <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} onRename={() => setNoteToRename(openNote)} />
+    <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} onRename={() => setDocumentAction({ kind: "rename", note: openNote })} />
     {renameDialog}
   </>;
 
@@ -200,7 +201,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
                         <span className="note-cover">{note.cover ? <MediaImage source={note.cover} repository={repository} className="cover-image" lazy /> : <PreviewSheet title={note.title} sample={note.sample} />}</span>
                         <span className="note-name">{note.title}</span>
                       </button>
-                      <button className="icon-button note-options" type="button" aria-label={`Rename ${note.title}`} title="Rename document" onClick={() => setNoteToRename(note)}>
+                      <button className="icon-button note-options" type="button" aria-label={`Actions for ${note.title}`} title="Document actions" onClick={() => setDocumentAction({ kind: "menu", note })}>
                         <Ellipsis size={18} />
                       </button>
                     </div>)}</div> : <div className="empty-collection"><Images size={21} /><span>Add a document or blank note to this table.</span></div>}
@@ -217,18 +218,32 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         setCollection(group.id);
         setQuery("");
       } else {
+        assertNoteNameAvailable(library?.notes ?? [], title, id);
         const note = await repository.createNote({ id, title, collectionId });
         addNote(note);
         showNote(note);
       }
       setModal(undefined);
     }} />}
-    {modal === "batch" && <BatchImport collections={collections} destination={collection} repository={repository}
+    {modal === "batch" && <BatchImport collections={collections} notes={library?.notes ?? []} destination={collection} repository={repository}
       onSaved={addNote} onClose={() => setModal(undefined)} onDone={(count, collectionId) => {
         setModal(undefined); setQuery(""); setCollection(collectionId);
         setNotice(`${count} ${count === 1 ? "document" : "documents"} saved.`);
       }} />}
+    {documentAction?.kind === "menu" && <Dialog title={documentAction.note.title} description="Document actions" onClose={() => setDocumentAction(undefined)}>
+      <div className="document-actions">
+        <button className="button secondary" onClick={() => setDocumentAction({ kind: "rename", note: documentAction.note })}><Pencil size={17} /> Rename</button>
+        <button className="button secondary danger-text" onClick={() => setDocumentAction({ kind: "delete", note: documentAction.note })}><Trash2 size={17} /> Delete</button>
+      </div>
+    </Dialog>}
     {renameDialog}
+    {documentAction?.kind === "delete" && <DeleteDialog note={documentAction.note} onClose={() => setDocumentAction(undefined)} onConfirm={async () => {
+      const { id } = documentAction.note;
+      await repository.deleteNote(id);
+      setLibrary((current) => current && ({ ...current, notes: current.notes.filter((note) => note.id !== id) }));
+      setDocumentAction(undefined);
+      setNotice("Document deleted.");
+    }} />}
   </div>;
 }
 
@@ -264,6 +279,30 @@ function RenameDialog({ note, onClose, onSubmit }: {
         <button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save name"}</button>
       </div>
     </form>
+  </Dialog>;
+}
+
+function DeleteDialog({ note, onClose, onConfirm }: { note: Note; onClose: () => void; onConfirm: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function confirm() {
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try { await onConfirm(); }
+    catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete this document.");
+      setBusy(false);
+    }
+  }
+
+  return <Dialog title="Delete document?" description={`“${note.title}” and its pages will be permanently deleted.`} onClose={onClose} busy={busy}>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="dialog-actions">
+      <button className="button secondary" autoFocus disabled={busy} onClick={onClose}>Cancel</button>
+      <button className="button danger" disabled={busy} onClick={() => void confirm()}>{busy ? "Deleting…" : "Delete document"}</button>
+    </div>
   </Dialog>;
 }
 
