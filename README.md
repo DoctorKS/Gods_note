@@ -2,7 +2,27 @@
 
 Gods Note เป็นเว็บแอปจดโน้ตที่ออกแบบสำหรับ Safari บน iPad รองรับ Apple Pencil และนำเข้าภาพถ่ายเอกสารเพื่อปรับให้เหมือนภาพสแกน ข้อมูลและไฟล์เก็บใน Supabase ส่วนเว็บ deploy บน Vercel
 
-สถานะปัจจุบันคือเอกสารออกแบบสำหรับเริ่มพัฒนา อ่าน [AGENTS.md](AGENTS.md) ก่อนเริ่มงานในโปรเจกต์
+ต้นแบบรันได้ในเครื่องทั้ง Dashboard การสแกนภาพเป็นชุด และหน้าเขียนโน้ต อ่าน [AGENTS.md](AGENTS.md) ก่อนเริ่มงานในโปรเจกต์
+
+## รันในเครื่อง
+
+ต้องใช้ Node.js 22 ขึ้นไป
+
+```sh
+npm ci
+npm run dev
+```
+
+เปิด [Gods Note ในเครื่อง](http://localhost:3000) เมื่อยังไม่ตั้งค่า Supabase แอปจะเปิดโหมดทดลองพร้อมโน้ตตัวอย่างและเก็บข้อมูลที่เพิ่มใน IndexedDB ของเบราว์เซอร์
+
+### เชื่อม Supabase และ deploy บน Vercel
+
+1. เตรียมโปรเจกต์ Supabase สำหรับ Gods Note แล้วรัน SQL จากไฟล์ migration ใน SQL Editor [ไฟล์ตั้งค่าฐานข้อมูล](supabase/migrations/20261108000100_create_note_library.sql)
+2. คัดลอก `.env.example` เป็น `.env.local` แล้วใส่ Project URL ใน `NEXT_PUBLIC_SUPABASE_URL` และ Publishable key ใน `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+3. นำ GitHub repository เข้า Vercel เป็นโปรเจกต์ Next.js ตั้งค่า environment variables ทั้งสองตัว แล้ว deploy
+4. ตั้งค่า Site URL และ URL ที่อนุญาตให้ redirect ใน Supabase Auth ให้ตรงกับโดเมนแอป เพื่อให้ลิงก์ยืนยันบัญชีกลับมายังแอปได้
+
+ตรวจโค้ดด้วย `npm run typecheck` และตรวจ production build ด้วย `npm run build` สคริปต์ build จะเตรียมไฟล์ OpenCV.js สำหรับสแกนภาพในเบราว์เซอร์
 
 ## ประสบการณ์ใช้งาน
 
@@ -29,7 +49,7 @@ Gods Note เป็นเว็บแอปจดโน้ตที่ออก�
 | ส่วน | หน้าที่ |
 | --- | --- |
 | Next.js บน Vercel | ให้บริการ Dashboard หน้านำเข้าเอกสาร และหน้าเขียนโน้ต |
-| OpenCV.js ในเบราว์เซอร์ | ตรวจขอบกระดาษ แก้มุมมอง และปรับความสว่างกับความคมของภาพก่อนอัปโหลด |
+| OpenCV.js ใน Web Worker | ตรวจขอบกระดาษ แก้มุมมอง และปรับความสว่างกับความคมของภาพในเบราว์เซอร์ก่อนอัปโหลด |
 | Canvas และ Pointer Events | แสดงหน้ากระดาษและรับเส้นจาก Apple Pencil |
 | Supabase Auth | ระบุบัญชีผู้ใช้สำหรับการเข้าถึงข้อมูลและไฟล์ของตนเอง |
 | Supabase Postgres | เก็บกลุ่มโน้ต ชื่อ วันที่สร้าง ข้อมูลแต่ละหน้า และเส้นปากกา |

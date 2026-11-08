@@ -1,0 +1,39 @@
+export const MAX_BATCH_IMAGES = 10;
+export const DEFAULT_PAGE_RATIO = 0.75;
+
+export type Collection = { id: string; title: string };
+
+export type Note = {
+  id: string;
+  collectionId: string;
+  title: string;
+  createdAt: string;
+  cover: string | Blob | null;
+  sample?: number;
+};
+
+export type InkPoint = { x: number; y: number; pressure: number };
+export type Stroke = { points: InkPoint[]; color: string; tool: "pen" | "highlighter" | "eraser" };
+
+export type NotePage = {
+  background: string | Blob | null;
+  ratio: number;
+  strokes: Stroke[];
+};
+
+export type NewNote = Pick<Note, "id" | "collectionId" | "title"> & {
+  image?: Blob;
+  thumbnail?: Blob;
+  ratio?: number;
+};
+
+export type Library = { collections: Collection[]; notes: Note[] };
+
+export interface NoteRepository {
+  list(): Promise<Library>;
+  createCollection(collection: Collection): Promise<Collection>;
+  createNote(note: NewNote): Promise<Note>;
+  openNote(id: string): Promise<NotePage>;
+  saveInk(id: string, strokes: Stroke[]): Promise<void>;
+  imageUrl(path: string): Promise<string>;
+}
