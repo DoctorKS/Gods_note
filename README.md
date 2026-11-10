@@ -4,6 +4,8 @@ Gods Note เป็นเว็บแอปจดโน้ตที่ออก�
 
 จัดเอกสารตามปี พ.ศ. สแกนเอกสารเป็นชุด แนบรูปบาดแผลเป็นหน้าต่อ และดาวน์โหลด Backup เป็น JPG พร้อมลายเขียน อ่าน [AGENTS.md](AGENTS.md) ก่อนเริ่มงานในโปรเจกต์
 
+เปิดเว็บที่ใช้งานจริงบน Vercel ได้ที่ [Gods Note](https://godsnote-sage.vercel.app)
+
 ## รันในเครื่อง
 
 ต้องใช้ Node.js 22 ขึ้นไป
@@ -26,7 +28,9 @@ npm run dev
 
 ### อัปเดตโปรเจกต์ที่ใช้งานอยู่
 
-สำหรับโปรเจกต์ที่เชื่อมกับ Supabase CLI แล้ว ให้ตรวจรายการด้วย `supabase migration list --linked` และรัน `supabase db push --linked` ก่อน push เวอร์ชันนี้ขึ้น `main` เพื่อให้ Vercel deploy หลังจากฐานข้อมูลพร้อมใช้งาน [Migration สำหรับถังขยะตาราง](supabase/migrations/20261110000200_add_table_trash.sql)
+สำหรับโปรเจกต์ที่เชื่อมกับ Supabase CLI แล้ว ให้ตรวจรายการด้วย `supabase migration list --linked` และรัน `supabase db push --linked` เพื่อใช้ migration ที่ยังค้างก่อน deploy แอปเวอร์ชันที่ต้องใช้โครงสร้างฐานข้อมูลใหม่ [คู่มือ Supabase CLI](https://supabase.com/docs/reference/cli/supabase-db-push)
+
+สำหรับเว็บจริง เรารัน migration ของ **Trash** ในโปรเจกต์ Supabase `Gods_note` ผ่าน Supabase CLI เรียบร้อยแล้ว และตรวจสอบว่า Data API อ่านคอลัมน์ `collections.trashed_at` ได้ [ไฟล์ migration สำหรับถังขยะตาราง](supabase/migrations/20261110000200_add_table_trash.sql)
 
 ## ประสบการณ์ใช้งาน
 
@@ -91,7 +95,7 @@ gods-note-backup.zip
 
 | ตาราง | ข้อมูลและความสัมพันธ์ |
 | --- | --- |
-| `collections` | กลุ่มโน้ต มีรหัสเจ้าของ ชื่อกลุ่ม และปี พ.ศ. สำหรับตารางปี |
+| `collections` | กลุ่มโน้ต มีรหัสเจ้าของ ชื่อกลุ่ม ปี พ.ศ. สำหรับตารางปี และเวลาที่ถูกย้ายไปถังขยะ (`trashed_at`) |
 | `notes` | ชื่อโน้ต วันที่สร้าง และพาธภาพปก อยู่ภายใต้ `collections` |
 | `note_pages` | ลำดับหน้า ประเภทหน้า พาธภาพพื้นหลัง และข้อมูลเส้นปากกา อยู่ภายใต้ `notes` |
 
