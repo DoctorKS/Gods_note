@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eraser, Highlighter, LoaderCircle, Pencil, PenLine, Save, Undo2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eraser, Highlighter, LoaderCircle, Minus, Pencil, PenLine, Plus, Save, Undo2 } from "lucide-react";
 import type { InkPoint, Note, NotePage, NoteRepository, Stroke } from "../lib/models";
 import { drawStroke } from "../lib/ink";
 import { MediaImage, PreviewSheet } from "./ui";
+import { usePaperViewport } from "./use-paper-viewport";
 
 const colors = [
   { name: "Blue", value: "#234fe5" },
@@ -62,6 +63,8 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   onNavigate: (pageIndex: number, strokes: Stroke[]) => void;
 }) {
   const { tool, color, pencilOnly } = preferences;
+  const viewport = usePaperViewport();
+  const pageWidth = Math.min(900, 880 * page.ratio) * viewport.zoom;
   const [status, setStatus] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [error, setError] = useState("");
   const [imageError, setImageError] = useState(false);
@@ -70,7 +73,7 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const strokes = useRef(page.strokes);
   const saved = useRef(page.strokes);
-  const draft = useRef<{ pointerId: number; stroke: Stroke } | null>(null);
+  const draft = useRef<{ pointerId: number; pointerType: string; stroke: Stroke } | null>(null);
   const frame = useRef(0);
   const timer = useRef(0);
   const saveQueue = useRef(Promise.resolve(true));
@@ -80,9 +83,11 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const scale = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.round(rect.width * scale);
-    const height = Math.round(rect.height * scale);
+    // Limit backing pixels when zooming so the writing layer fits mobile canvas budgets.
+    const scale = Math.min(2, window.devicePixelRatio || 1, 4096 / Math.max(rect.width, rect.height),
+      Math.sqrt(4_000_000 / (rect.width * rect.height)));
+    const width = Math.max(1, Math.floor(rect.width * scale));
+    const height = Math.max(1, Math.floor(rect.height * scale));
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
     const context = canvas.getContext("2d");
@@ -153,14 +158,22 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   }
 
   function start(event: PointerEvent<HTMLCanvasElement>) {
-    if (leaving || draft.current || event.button !== 0 || (pencilOnly && event.pointerType === "touch")) return;
+    if (leaving || event.button !== 0) return;
+    const isTouch = event.pointerType === "touch";
+    if (draft.current && (!isTouch || draft.current.pointerType !== "touch")) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    draft.current = { pointerId: event.pointerId, stroke: { tool, color, points: [point(event.nativeEvent, event.currentTarget.getBoundingClientRect())] } };
+    if (isTouch && viewport.beginTouch(event, pencilOnly)) {
+      if (draft.current) { draft.current = null; schedulePaint(); }
+      return;
+    }
+    if (!isTouch) viewport.clearTouches();
+    draft.current = { pointerId: event.pointerId, pointerType: event.pointerType, stroke: { tool, color, points: [point(event.nativeEvent, event.currentTarget.getBoundingClientRect())] } };
     schedulePaint();
   }
 
   function move(event: PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === "touch" && viewport.moveTouch(event)) return;
     if (draft.current?.pointerId !== event.pointerId) return;
     const samples = event.nativeEvent.getCoalescedEvents?.();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -169,6 +182,7 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   }
 
   function finish(event: PointerEvent<HTMLCanvasElement>) {
+    if (viewport.endTouch(event)) return;
     if (draft.current?.pointerId !== event.pointerId) return;
     const { stroke } = draft.current;
     draft.current = null;
@@ -190,7 +204,7 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   }
 
   const tools = [{ name: "pen", icon: PenLine }, { name: "highlighter", icon: Highlighter }, { name: "eraser", icon: Eraser }] as const;
-  return <main className="editor">
+  return <main className="editor editor-document">
     <header className="editor-header">
       <button className="button text-button" onClick={() => void leave(onBack)} disabled={leaving}><ArrowLeft size={19} /> Library</button>
       <EditorTitle title={note.title} onRename={onRename} disabled={leaving} />
@@ -212,21 +226,30 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
       </div>
       <label className="pencil-setting"><input type="checkbox" checked={pencilOnly} onChange={(event) => onPreferences({ ...preferences, pencilOnly: event.target.checked })} /> Pencil only</label>
     </div>
-    {pageCount > 1 && <nav className="page-nav" aria-label="Document pages">
-      <button className="icon-button" type="button" aria-label="Previous page" disabled={leaving || pageIndex === 0}
-        onClick={() => void leave(() => onNavigate(pageIndex - 1, strokes.current))}><ChevronLeft size={20} /></button>
-      <span aria-live="polite">Page {pageIndex + 1} of {pageCount}{page.kind === "wound" && " · Wound photo"}</span>
-      <button className="icon-button" type="button" aria-label="Next page" disabled={leaving || pageIndex === pageCount - 1}
-        onClick={() => void leave(() => onNavigate(pageIndex + 1, strokes.current))}><ChevronRight size={20} /></button>
-    </nav>}
+    <div className="view-controls">
+      {pageCount > 1 && <nav className="page-nav" aria-label="Document pages">
+        <button className="icon-button" type="button" aria-label="Previous page" disabled={leaving || pageIndex === 0}
+          onClick={() => void leave(() => onNavigate(pageIndex - 1, strokes.current))}><ChevronLeft size={20} /></button>
+        <span aria-live="polite">Page {pageIndex + 1} of {pageCount}{page.kind === "wound" && " · Wound photo"}</span>
+        <button className="icon-button" type="button" aria-label="Next page" disabled={leaving || pageIndex === pageCount - 1}
+          onClick={() => void leave(() => onNavigate(pageIndex + 1, strokes.current))}><ChevronRight size={20} /></button>
+      </nav>}
+      <div className="zoom-controls" role="group" aria-label="Paper zoom">
+        <button className="icon-button" type="button" aria-label="Zoom out" disabled={viewport.zoom <= 1} onClick={() => viewport.zoomBy(1 / Math.SQRT2)}><Minus size={17} /></button>
+        <button className="button secondary" type="button" aria-label="Fit width" title="Fit width" onClick={viewport.fit}>Fit</button>
+        <button className="icon-button" type="button" aria-label="Zoom in" disabled={!viewport.canZoomIn} onClick={() => viewport.zoomBy(Math.SQRT2)}><Plus size={17} /></button>
+      </div>
+    </div>
     {(error || imageError) && <p className="editor-error form-error" role="alert">{error || "The page image could not load. Return to the library and reopen the note to try again."}</p>}
-    <div className="paper-stage">
-      <div className="writing-paper" style={{ aspectRatio: page.ratio, width: `min(100%, ${Math.min(900, 880 * page.ratio)}px)` }}>
-        {page.background ? <MediaImage source={page.background} repository={repository} className="paper-background" onError={() => setImageError(true)} /> :
-          note.sample !== undefined ? <div className="paper-background"><PreviewSheet title={note.title} sample={note.sample} /></div> :
-            <div className="ruled-paper" />}
-        <canvas ref={canvasRef} aria-label="Drawing area" onPointerDown={start} onPointerMove={move}
-          onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish} />
+    <div ref={viewport.stageRef} className="paper-stage" role="region" aria-label="Paper viewport" tabIndex={0}>
+      <div className="paper-track" style={{ width: `max(100%, min(${viewport.zoom * 100}%, ${pageWidth}px))` }}>
+        <div ref={viewport.paperRef} className="writing-paper" style={{ aspectRatio: page.ratio, width: `min(100%, ${pageWidth}px)` }}>
+          {page.background ? <MediaImage source={page.background} repository={repository} className="paper-background" onError={() => setImageError(true)} /> :
+            note.sample !== undefined ? <div className="paper-background"><PreviewSheet title={note.title} sample={note.sample} /></div> :
+              <div className="ruled-paper" />}
+          <canvas ref={canvasRef} aria-label="Drawing area" onPointerDown={start} onPointerMove={move}
+            onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish} />
+        </div>
       </div>
     </div>
   </main>;
