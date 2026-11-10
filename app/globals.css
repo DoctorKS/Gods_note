@@ -210,10 +210,12 @@ svg { flex-shrink: 0; }
 .editor-document { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
 .editor-document > :not(.paper-stage) { flex-shrink: 0; }
 .editor-header { min-height: 63px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; justify-items: start; padding: 6px 19px; background: white; border-bottom: 1px solid var(--border); }
-.editor-header h1 { font-size: 1.1rem; min-width: 0; max-width: 100%; justify-self: center; }
+.editor-document-nav { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 0; max-width: 100%; justify-self: center; }
+.editor-document-nav .icon-button { flex-shrink: 0; }
+.editor-document-nav h1 { font-size: 1.1rem; min-width: 0; }
 .editor-title-button { display: flex; align-items: center; gap: 7px; max-width: 100%; min-height: 42px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; }
 .editor-title-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editor-title-button svg { color: var(--muted); }
+.editor-title-button svg { color: var(--muted); flex-shrink: 0; }
 .editor-title-button:enabled:hover { background: var(--blue-pale); }
 .editor-save { justify-self: end; display: flex; align-items: center; gap: 3px; }
 .editor-save span { display: flex; align-items: center; gap: 4px; font-size: .8rem; }
@@ -269,6 +271,10 @@ svg { flex-shrink: 0; }
   .editor-toolbar { flex-wrap: wrap; gap: 6px; }
   .swatches { padding-left: 7px; gap: 8px; }
   .paper-stage { padding: 10px 13px 25px; }
+}
+@media (max-width: 420px) {
+  .editor-back span { display: none; }
+  .editor-save span { max-width: 70px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

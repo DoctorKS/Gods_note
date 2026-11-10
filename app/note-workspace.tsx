@@ -128,7 +128,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   }, [activeLibrary, query, sort, ascending]);
 
   function showNote(note: Note) {
-    setScrollPosition(window.scrollY);
+    if (!openNote) setScrollPosition(window.scrollY);
     setOpenNote(note);
     window.scrollTo(0, 0);
   }
@@ -170,10 +170,18 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
     setDocumentAction(undefined);
   }} />;
 
-  if (openNote) return <>
-    <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} onRename={() => setDocumentAction({ kind: "rename", note: openNote })} />
-    {renameDialog}
-  </>;
+  if (openNote) {
+    const documents = activeLibrary?.notes.filter(({ collectionId }) => collectionId === openNote.collectionId)
+      .sort((first, second) => titleOrder.compare(first.title, second.title) || first.id.localeCompare(second.id)) ?? [];
+    const index = documents.findIndex(({ id }) => id === openNote.id);
+    const previous = documents[index - 1];
+    const next = index < 0 ? undefined : documents[index + 1];
+    return <>
+      <NoteEditor note={openNote} repository={repository} onBack={returnToLibrary} onRename={() => setDocumentAction({ kind: "rename", note: openNote })}
+        onPrevious={previous ? () => showNote(previous) : undefined} onNext={next ? () => showNote(next) : undefined} />
+      {renameDialog}
+    </>;
+  }
 
   return <div className="workspace">
     <header className="topbar">

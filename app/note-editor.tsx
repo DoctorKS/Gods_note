@@ -15,19 +15,35 @@ const colors = [
   { name: "Yellow", value: "#efb700" },
 ];
 
-type EditorProps = { note: Note; repository: NoteRepository; onBack: () => void; onRename: () => void };
+type DocumentNavigation = { onPrevious?: () => void; onNext?: () => void };
+type EditorProps = DocumentNavigation & { note: Note; repository: NoteRepository; onBack: () => void; onRename: () => void };
 type Preferences = { tool: Stroke["tool"]; color: string; pencilOnly: boolean };
+type DocumentEditorProps = EditorProps & { preferences: Preferences; onPreferences: (preferences: Preferences) => void };
 
-function EditorTitle({ title, onRename, disabled }: { title: string; onRename: () => void; disabled?: boolean }) {
-  return <h1><button type="button" className="editor-title-button" title="Rename document" aria-label={`Rename ${title}`} onClick={onRename} disabled={disabled}>
-    <span>{title}</span><Pencil size={15} />
-  </button></h1>;
+function EditorTitle({ title, onRename, onPrevious, onNext, disabled }: DocumentNavigation & {
+  title: string;
+  onRename: () => void;
+  disabled?: boolean;
+}) {
+  return <div className="editor-document-nav" role="group" aria-label="Document navigation">
+    <button type="button" className="icon-button" aria-label="Previous document" title="Previous document"
+      onClick={onPrevious} disabled={disabled || !onPrevious}><ChevronLeft size={20} /></button>
+    <h1><button type="button" className="editor-title-button" title="Rename document" aria-label={`Rename ${title}`} onClick={onRename} disabled={disabled}>
+      <span>{title}</span><Pencil size={15} />
+    </button></h1>
+    <button type="button" className="icon-button" aria-label="Next document" title="Next document"
+      onClick={onNext} disabled={disabled || !onNext}><ChevronRight size={20} /></button>
+  </div>;
 }
 
-export function NoteEditor({ note, repository, onBack, onRename }: EditorProps) {
+export function NoteEditor(props: EditorProps) {
+  const [preferences, setPreferences] = useState<Preferences>({ tool: "pen", color: colors[0].value, pencilOnly: true });
+  return <DocumentEditor key={props.note.id} {...props} preferences={preferences} onPreferences={setPreferences} />;
+}
+
+function DocumentEditor({ note, repository, onBack, onRename, onPrevious, onNext, preferences, onPreferences }: DocumentEditorProps) {
   const [pages, setPages] = useState<NotePage[]>();
   const [pageIndex, setPageIndex] = useState(0);
-  const [preferences, setPreferences] = useState<Preferences>({ tool: "pen", color: colors[0].value, pencilOnly: true });
   const [error, setError] = useState("");
   const [load, setLoad] = useState(0);
   useEffect(() => {
@@ -42,24 +58,25 @@ export function NoteEditor({ note, repository, onBack, onRename }: EditorProps) 
 
   const page = pages?.[pageIndex];
   if (page && pages) return <WritingSurface key={page.number} note={note} page={page} pageCount={pages.length} pageIndex={pageIndex}
-    repository={repository} onBack={onBack} onRename={onRename} preferences={preferences} onPreferences={setPreferences}
+    repository={repository} onBack={onBack} onRename={onRename} onPrevious={onPrevious} onNext={onNext} preferences={preferences} onPreferences={onPreferences}
     onNavigate={(index, strokes) => {
       setPages((current) => current?.map((item) => item.number === page.number ? { ...item, strokes } : item));
       setPageIndex(index);
       window.scrollTo(0, 0);
     }} />;
   return <main className="editor">
-    <header className="editor-header"><button className="button text-button" onClick={onBack}><ArrowLeft size={19} /> Library</button><EditorTitle title={note.title} onRename={onRename} /></header>
+    <header className="editor-header">
+      <button className="button text-button editor-back" aria-label="Library" onClick={onBack}><ArrowLeft size={19} /> <span>Library</span></button>
+      <EditorTitle title={note.title} onRename={onRename} onPrevious={onPrevious} onNext={onNext} />
+    </header>
     <div className="empty-state editor-state">{error ? <><p role="alert">{error}</p><button className="button secondary" onClick={() => { setError(""); setLoad((value) => value + 1); }}>Try again</button></> : <p role="status">Opening note…</p>}</div>
   </main>;
 }
 
-function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, onRename, preferences, onPreferences, onNavigate }: EditorProps & {
+function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, onRename, onPrevious, onNext, preferences, onPreferences, onNavigate }: DocumentEditorProps & {
   page: NotePage;
   pageCount: number;
   pageIndex: number;
-  preferences: Preferences;
-  onPreferences: (preferences: Preferences) => void;
   onNavigate: (pageIndex: number, strokes: Stroke[]) => void;
 }) {
   const { tool, color, pencilOnly } = preferences;
@@ -206,8 +223,9 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
   const tools = [{ name: "pen", icon: PenLine }, { name: "highlighter", icon: Highlighter }, { name: "eraser", icon: Eraser }] as const;
   return <main className="editor editor-document">
     <header className="editor-header">
-      <button className="button text-button" onClick={() => void leave(onBack)} disabled={leaving}><ArrowLeft size={19} /> Library</button>
-      <EditorTitle title={note.title} onRename={onRename} disabled={leaving} />
+      <button className="button text-button editor-back" aria-label="Library" onClick={() => void leave(onBack)} disabled={leaving}><ArrowLeft size={19} /> <span>Library</span></button>
+      <EditorTitle title={note.title} onRename={onRename} disabled={leaving}
+        onPrevious={onPrevious && (() => void leave(onPrevious))} onNext={onNext && (() => void leave(onNext))} />
       <div className="editor-save">
         <span role="status" className={status === "error" ? "form-error" : "muted"}>
           {status === "saved" ? <><Check size={16} /> Saved</> : status === "saving" ? <><LoaderCircle size={16} className="spinner" /> Saving…</> : status === "error" ? "Save failed" : "Unsaved changes"}
@@ -218,7 +236,7 @@ function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, 
     <div className="editor-toolbar" aria-label="Writing tools">
       <div className="tool-group">
         {tools.map(({ name, icon: Icon }) => <button type="button" key={name} aria-label={name} aria-pressed={name === tool} title={name} className={name === tool ? "icon-button active-tool" : "icon-button"} onClick={() => onPreferences({ ...preferences, tool: name })}><Icon size={21} /></button>)}
-        <button type="button" className="icon-button" aria-label="Undo stroke" title="Undo" disabled={!count} onClick={() => changeInk(strokes.current.slice(0, -1))}><Undo2 size={20} /></button>
+        <button type="button" className="icon-button" aria-label="Undo stroke" title="Undo" disabled={leaving || !count} onClick={() => changeInk(strokes.current.slice(0, -1))}><Undo2 size={20} /></button>
       </div>
       <div className="tool-group swatches">
         {colors.map(({ name, value }) => <button key={value} type="button" className={value === color ? "swatch active-swatch" : "swatch"}
