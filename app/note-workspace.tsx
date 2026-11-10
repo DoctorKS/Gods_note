@@ -187,7 +187,6 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         <span className="eyebrow">WORKSPACE</span>
         <button className={collection ? "sidebar-item" : "sidebar-item selected"} onClick={() => setCollection("")}><Grid2X2 size={17} /> All notes</button>
         <div className="sidebar-heading"><span className="eyebrow">TABLES</span><button className="icon-button" aria-label="Add a table" onClick={() => setModal("collection")} disabled={!library}><Plus size={17} /></button></div>
-        {library && !currentYearTable && <button className={collection === currentYearKey ? "sidebar-item selected" : "sidebar-item"} onClick={() => setCollection(currentYearKey)}><Folder size={17} /> <span>{yearTitle(currentYear)}</span></button>}
         {collections.map((group) => <button key={group.id} className={collection === tableKey(group) ? "sidebar-item selected" : "sidebar-item"} onClick={() => setCollection(tableKey(group))}><Folder size={17} /> <span>{group.title}</span></button>)}
         <div className="sidebar-footer">
           {supabase ? <button className="sidebar-item" onClick={async () => {
