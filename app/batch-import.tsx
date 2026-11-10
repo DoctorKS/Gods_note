@@ -2,14 +2,16 @@
 
 import { useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { Check, CircleAlert, Crop, ImagePlus, Images, LoaderCircle, ScanLine, X } from "lucide-react";
-import { MAX_BATCH_IMAGES, noteNameKey, type Collection, type Note, type NoteRepository } from "../lib/models";
+import { MAX_BATCH_IMAGES, noteNameKey, type Collection, type Note, type NoteRepository, type WoundPhoto } from "../lib/models";
 import { FULL_IMAGE, prepareImage, scanImage, type Corners, type Point, type PreparedImage, type Scan } from "../lib/scanner";
 import { Dialog, MediaImage } from "./ui";
+import { WoundPicker } from "./wound-upload";
 
 type BatchItem = {
   id: string;
   title: string;
   file: File;
+  wounds?: WoundPhoto[];
   prepared?: PreparedImage;
   corners?: Corners;
   result?: Scan;
@@ -37,6 +39,7 @@ export function BatchImport({ collections, notes, destination, repository, onClo
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const current = items.find(({ id }) => id === currentId) ?? items[0];
+  const imageCount = items.reduce((count, item) => count + 1 + (item.wounds?.length ?? 0), 0);
   const unsaved = items.filter((item) => !item.saved);
   const names = new Map<string, number>();
   for (const { title } of [...notes, ...unsaved]) {
@@ -52,7 +55,7 @@ export function BatchImport({ collections, notes, destination, repository, onClo
 
   async function scanFiles(files: File[]) {
     if (!files.length || busy || attempted) return;
-    if (files.length + items.length > MAX_BATCH_IMAGES) {
+    if (files.length + imageCount > MAX_BATCH_IMAGES) {
       setMessage("Choose no more than 10 images per batch.");
       return;
     }
@@ -100,7 +103,7 @@ export function BatchImport({ collections, notes, destination, repository, onClo
       if (!item.result) continue;
       setBusy(`Saving ${index + 1} of ${unsaved.length}…`);
       try {
-        const note = await repository.createNote({ id: item.id, collectionId, title: item.title.trim(), ...item.result });
+        const note = await repository.createNote({ id: item.id, collectionId, title: item.title.trim(), wounds: item.wounds, ...item.result });
         patchItem(item.id, { saved: true, error: undefined });
         onSaved(note);
         count++;
@@ -118,13 +121,13 @@ export function BatchImport({ collections, notes, destination, repository, onClo
     }
   }
 
-  return <Dialog title="Batch upload" description="Scan up to 10 images at a time. Each image becomes a separate note and is compressed to 400 KB or less." onClose={onClose} wide busy={Boolean(busy)}>
+  return <Dialog title="Batch upload" description="Each scan is a separate document of up to 400 KB. Add wound photos to a scan to make extra pages in that document." onClose={onClose} wide busy={Boolean(busy)}>
     <div className="batch-content">
       <div className="batch-options">
         <label>Destination table<select aria-label="Destination table" value={collectionId} onChange={(event) => setCollectionId(event.target.value)} disabled={Boolean(busy) || attempted}>
           {collections.map((group) => <option key={group.id} value={group.id}>{group.title}</option>)}
         </select></label>
-        <span className="count-badge">{items.length} / {MAX_BATCH_IMAGES} images</span>
+        <span className="count-badge">{imageCount} / {MAX_BATCH_IMAGES} images</span>
       </div>
       <input ref={fileInput} type="file" multiple accept="image/*" className="visually-hidden" tabIndex={-1} aria-label="Choose images" onChange={(event) => {
         const files = Array.from(event.target.files ?? []);
@@ -147,7 +150,7 @@ export function BatchImport({ collections, notes, destination, repository, onClo
             {item.saved && <Check size={15} className="success-text" aria-label="Saved" />}
             {duplicates.has(item.id) && <CircleAlert size={15} className="danger-text" aria-label="Duplicate name" />}
           </button>)}
-          {!attempted && items.length < MAX_BATCH_IMAGES && <button className="button secondary batch-add" disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}><ImagePlus size={17} /> Add images</button>}
+          {!attempted && imageCount < MAX_BATCH_IMAGES && <button className="button secondary batch-add" disabled={Boolean(busy)} onClick={() => fileInput.current?.click()}><ImagePlus size={17} /> Add images</button>}
         </div>
         {current && <div className="batch-review" key={current.id}>
           <div className="scan-comparison">
@@ -173,6 +176,10 @@ export function BatchImport({ collections, notes, destination, repository, onClo
               setMessage("");
             }}><X size={19} /></button>}
           </div>
+          {current.prepared && <WoundPicker photos={current.wounds ?? []} maxPhotos={MAX_BATCH_IMAGES - imageCount + (current.wounds?.length ?? 0)}
+            repository={repository} disabled={Boolean(busy) || attempted}
+            onChange={(wounds) => { patchItem(current.id, { wounds }); setMessage(""); }}
+            onBusyChange={(preparing) => setBusy(preparing ? "Preparing wound photos…" : "")} />}
         </div>}
       </>}
       {duplicates.size > 0 && <p className="form-error" role="alert">Document names must be unique. Rename the marked images before saving.</p>}

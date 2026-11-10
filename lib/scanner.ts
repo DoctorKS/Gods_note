@@ -1,4 +1,4 @@
-import { MAX_UPLOAD_BYTES } from "./models";
+import { A4_HEIGHT, A4_WIDTH, MAX_UPLOAD_BYTES, MAX_WOUND_BYTES, type WoundPhoto } from "./models";
 
 export type Point = { x: number; y: number };
 export type Corners = [Point, Point, Point, Point];
@@ -46,20 +46,20 @@ function processImage(kind: "detect" | "enhance", image: ImageData, corners?: Co
   });
 }
 
-function canvasAt(width: number, height: number) {
+export function canvasAt(width: number, height: number) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
   canvas.height = Math.max(1, Math.round(height));
   return canvas;
 }
 
-function context2d(canvas: HTMLCanvasElement) {
+export function context2d(canvas: HTMLCanvasElement) {
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) throw new Error("Your browser could not open the image canvas.");
   return context;
 }
 
-async function loadImage(blob: Blob, maxSize: number) {
+export async function loadImage(blob: Blob, maxSize: number) {
   const url = URL.createObjectURL(blob);
   try {
     const image = new Image();
@@ -68,7 +68,6 @@ async function loadImage(blob: Blob, maxSize: number) {
     catch { throw new Error("This image could not be opened. Try a JPEG or PNG."); }
     const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = canvasAt(image.naturalWidth * scale, image.naturalHeight * scale);
-    if (Math.min(canvas.width, canvas.height) < 24) throw new Error("This image is too small to scan.");
     const context = context2d(canvas);
     context.fillStyle = "white";
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -79,29 +78,46 @@ async function loadImage(blob: Blob, maxSize: number) {
   }
 }
 
-function jpeg(canvas: HTMLCanvasElement, quality: number) {
+export function jpeg(canvas: HTMLCanvasElement, quality: number) {
   return new Promise<Blob>((resolve, reject) => canvas.toBlob((blob) => {
     if (blob) resolve(blob);
     else reject(new Error("Could not create the scan preview."));
   }, "image/jpeg", quality));
 }
 
-async function jpegForUpload(canvas: HTMLCanvasElement, preferredQuality: number) {
+export async function jpegForUpload(canvas: HTMLCanvasElement, preferredQuality: number, maxBytes = MAX_UPLOAD_BYTES, a4 = false) {
   let source = canvas;
   while (true) {
     for (const quality of [preferredQuality, 0.82, 0.72]) {
       const blob = await jpeg(source, quality);
-      if (blob.size <= MAX_UPLOAD_BYTES) return { blob, ratio: source.width / source.height };
+      if (blob.size <= maxBytes) return { blob, ratio: source.width / source.height };
     }
-    if (source.width === 1 && source.height === 1) throw new Error("Could not compress the scan to 400 KB.");
-    const smaller = canvasAt(Math.floor(source.width * 0.8), Math.floor(source.height * 0.8));
+    const width = a4 ? Math.max(1, Math.floor(source.width * 0.8 / 70)) * 70 : Math.max(1, Math.floor(source.width * 0.8));
+    const height = a4 ? width / 70 * 99 : Math.max(1, Math.floor(source.height * 0.8));
+    if (width === source.width && height === source.height) throw new Error(`Could not compress the image to ${maxBytes / 1000} KB.`);
+    const smaller = canvasAt(width, height);
     context2d(smaller).drawImage(source, 0, 0, smaller.width, smaller.height);
     source = smaller;
   }
 }
 
+export async function prepareWoundPhoto(file: File): Promise<WoundPhoto> {
+  const photo = await loadImage(file, Math.max(A4_WIDTH, A4_HEIGHT));
+  const page = canvasAt(A4_WIDTH, A4_HEIGHT);
+  const context = context2d(page);
+  context.fillStyle = "white";
+  context.fillRect(0, 0, page.width, page.height);
+  const scale = Math.min(page.width / photo.width, page.height / photo.height);
+  const width = photo.width * scale;
+  const height = photo.height * scale;
+  context.drawImage(photo, (page.width - width) / 2, (page.height - height) / 2, width, height);
+  const { blob } = await jpegForUpload(page, 0.92, MAX_WOUND_BYTES, true);
+  return { id: crypto.randomUUID(), name: file.name, image: blob };
+}
+
 export async function prepareImage(file: File): Promise<PreparedImage> {
   const canvas = await loadImage(file, 1800);
+  if (Math.min(canvas.width, canvas.height) < 24) throw new Error("This image is too small to scan.");
   const scale = Math.min(1, 760 / Math.max(canvas.width, canvas.height));
   const small = canvasAt(canvas.width * scale, canvas.height * scale);
   const context = context2d(small);

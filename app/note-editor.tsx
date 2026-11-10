@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
-import { ArrowLeft, Check, Eraser, Highlighter, LoaderCircle, Pencil, PenLine, Save, Undo2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Eraser, Highlighter, LoaderCircle, Pencil, PenLine, Save, Undo2 } from "lucide-react";
 import type { InkPoint, Note, NotePage, NoteRepository, Stroke } from "../lib/models";
+import { drawStroke } from "../lib/ink";
 import { MediaImage, PreviewSheet } from "./ui";
 
 const colors = [
@@ -14,6 +15,7 @@ const colors = [
 ];
 
 type EditorProps = { note: Note; repository: NoteRepository; onBack: () => void; onRename: () => void };
+type Preferences = { tool: Stroke["tool"]; color: string; pencilOnly: boolean };
 
 function EditorTitle({ title, onRename, disabled }: { title: string; onRename: () => void; disabled?: boolean }) {
   return <h1><button type="button" className="editor-title-button" title="Rename document" aria-label={`Rename ${title}`} onClick={onRename} disabled={disabled}>
@@ -22,71 +24,44 @@ function EditorTitle({ title, onRename, disabled }: { title: string; onRename: (
 }
 
 export function NoteEditor({ note, repository, onBack, onRename }: EditorProps) {
-  const [page, setPage] = useState<NotePage>();
+  const [pages, setPages] = useState<NotePage[]>();
+  const [pageIndex, setPageIndex] = useState(0);
+  const [preferences, setPreferences] = useState<Preferences>({ tool: "pen", color: colors[0].value, pencilOnly: true });
   const [error, setError] = useState("");
   const [load, setLoad] = useState(0);
   useEffect(() => {
     let active = true;
     repository.openNote(note.id).then((data) => {
-      if (active) setPage(data);
+      if (active) setPages(data);
     }).catch((cause) => {
       if (active) setError(cause instanceof Error ? cause.message : "Could not open this note.");
     });
     return () => { active = false; };
   }, [load, note.id, repository]);
 
-  if (page) return <WritingSurface note={note} page={page} repository={repository} onBack={onBack} onRename={onRename} />;
+  const page = pages?.[pageIndex];
+  if (page && pages) return <WritingSurface key={page.number} note={note} page={page} pageCount={pages.length} pageIndex={pageIndex}
+    repository={repository} onBack={onBack} onRename={onRename} preferences={preferences} onPreferences={setPreferences}
+    onNavigate={(index, strokes) => {
+      setPages((current) => current?.map((item) => item.number === page.number ? { ...item, strokes } : item));
+      setPageIndex(index);
+      window.scrollTo(0, 0);
+    }} />;
   return <main className="editor">
     <header className="editor-header"><button className="button text-button" onClick={onBack}><ArrowLeft size={19} /> Library</button><EditorTitle title={note.title} onRename={onRename} /></header>
     <div className="empty-state editor-state">{error ? <><p role="alert">{error}</p><button className="button secondary" onClick={() => { setError(""); setLoad((value) => value + 1); }}>Try again</button></> : <p role="status">Opening note…</p>}</div>
   </main>;
 }
 
-function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke, width: number, height: number) {
-  const { points, tool } = stroke;
-  if (!points.length) return;
-  const size = Math.min(width, height);
-  const coordinates = (point: InkPoint): [number, number] => [point.x * width, point.y * height];
-  const thickness = (pressure: number) => size * (0.0022 + pressure * 0.004);
-  context.save();
-  context.strokeStyle = stroke.color;
-  context.fillStyle = stroke.color;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  if (tool === "eraser") context.globalCompositeOperation = "destination-out";
-  if (tool === "highlighter") context.globalAlpha = 0.32;
-
-  if (tool === "pen" && points.length > 1) {
-    for (let index = 1; index < points.length; index++) {
-      const previous = points[index - 1];
-      const current = points[index];
-      context.beginPath();
-      context.lineWidth = thickness((previous.pressure + current.pressure) / 2);
-      context.moveTo(...coordinates(previous));
-      context.lineTo(...coordinates(current));
-      context.stroke();
-    }
-  } else {
-    context.lineWidth = tool === "eraser" ? size * 0.028 : tool === "highlighter" ? size * 0.023 : thickness(points[0].pressure);
-    context.beginPath();
-    if (points.length === 1) {
-      const [x, y] = coordinates(points[0]);
-      context.arc(x, y, context.lineWidth / 2, 0, 2 * Math.PI);
-      context.fill();
-    } else {
-      context.moveTo(...coordinates(points[0]));
-      for (const point of points.slice(1)) context.lineTo(...coordinates(point));
-      context.stroke();
-    }
-  }
-  context.restore();
-}
-
-function WritingSurface({ note, page, repository, onBack, onRename }: EditorProps & { page: NotePage }) {
-  const [tool, setTool] = useState<Stroke["tool"]>("pen");
-  const [color, setColor] = useState(colors[0].value);
-  const [pencilOnly, setPencilOnly] = useState(true);
+function WritingSurface({ note, page, pageCount, pageIndex, repository, onBack, onRename, preferences, onPreferences, onNavigate }: EditorProps & {
+  page: NotePage;
+  pageCount: number;
+  pageIndex: number;
+  preferences: Preferences;
+  onPreferences: (preferences: Preferences) => void;
+  onNavigate: (pageIndex: number, strokes: Stroke[]) => void;
+}) {
+  const { tool, color, pencilOnly } = preferences;
   const [status, setStatus] = useState<"saved" | "dirty" | "saving" | "error">("saved");
   const [error, setError] = useState("");
   const [imageError, setImageError] = useState(false);
@@ -148,7 +123,7 @@ function WritingSurface({ note, page, repository, onBack, onRename }: EditorProp
       setStatus("saving");
       setError("");
       try {
-        await repository.saveInk(note.id, snapshot);
+        await repository.saveInk(note.id, page.number, snapshot);
         saved.current = snapshot;
         setStatus(strokes.current === snapshot ? "saved" : "dirty");
         return true;
@@ -207,17 +182,17 @@ function WritingSurface({ note, page, repository, onBack, onRename }: EditorProp
     changeInk([...strokes.current, stroke]);
   }
 
-  async function goBack() {
+  async function leave(action: () => void) {
     if (draft.current || leaving) return;
     setLeaving(true);
-    if (await flush()) onBack();
+    if (await flush()) action();
     else setLeaving(false);
   }
 
   const tools = [{ name: "pen", icon: PenLine }, { name: "highlighter", icon: Highlighter }, { name: "eraser", icon: Eraser }] as const;
   return <main className="editor">
     <header className="editor-header">
-      <button className="button text-button" onClick={() => void goBack()} disabled={leaving}><ArrowLeft size={19} /> Library</button>
+      <button className="button text-button" onClick={() => void leave(onBack)} disabled={leaving}><ArrowLeft size={19} /> Library</button>
       <EditorTitle title={note.title} onRename={onRename} disabled={leaving} />
       <div className="editor-save">
         <span role="status" className={status === "error" ? "form-error" : "muted"}>
@@ -228,15 +203,22 @@ function WritingSurface({ note, page, repository, onBack, onRename }: EditorProp
     </header>
     <div className="editor-toolbar" aria-label="Writing tools">
       <div className="tool-group">
-        {tools.map(({ name, icon: Icon }) => <button type="button" key={name} aria-label={name} aria-pressed={name === tool} title={name} className={name === tool ? "icon-button active-tool" : "icon-button"} onClick={() => setTool(name)}><Icon size={21} /></button>)}
+        {tools.map(({ name, icon: Icon }) => <button type="button" key={name} aria-label={name} aria-pressed={name === tool} title={name} className={name === tool ? "icon-button active-tool" : "icon-button"} onClick={() => onPreferences({ ...preferences, tool: name })}><Icon size={21} /></button>)}
         <button type="button" className="icon-button" aria-label="Undo stroke" title="Undo" disabled={!count} onClick={() => changeInk(strokes.current.slice(0, -1))}><Undo2 size={20} /></button>
       </div>
       <div className="tool-group swatches">
         {colors.map(({ name, value }) => <button key={value} type="button" className={value === color ? "swatch active-swatch" : "swatch"}
-          aria-label={name} aria-pressed={value === color} style={{ background: value }} onClick={() => setColor(value)} />)}
+          aria-label={name} aria-pressed={value === color} style={{ background: value }} onClick={() => onPreferences({ ...preferences, color: value })} />)}
       </div>
-      <label className="pencil-setting"><input type="checkbox" checked={pencilOnly} onChange={(event) => setPencilOnly(event.target.checked)} /> Pencil only</label>
+      <label className="pencil-setting"><input type="checkbox" checked={pencilOnly} onChange={(event) => onPreferences({ ...preferences, pencilOnly: event.target.checked })} /> Pencil only</label>
     </div>
+    {pageCount > 1 && <nav className="page-nav" aria-label="Document pages">
+      <button className="icon-button" type="button" aria-label="Previous page" disabled={leaving || pageIndex === 0}
+        onClick={() => void leave(() => onNavigate(pageIndex - 1, strokes.current))}><ChevronLeft size={20} /></button>
+      <span aria-live="polite">Page {pageIndex + 1} of {pageCount}{page.kind === "wound" && " · Wound photo"}</span>
+      <button className="icon-button" type="button" aria-label="Next page" disabled={leaving || pageIndex === pageCount - 1}
+        onClick={() => void leave(() => onNavigate(pageIndex + 1, strokes.current))}><ChevronRight size={20} /></button>
+    </nav>}
     {(error || imageError) && <p className="editor-error form-error" role="alert">{error || "The page image could not load. Return to the library and reopen the note to try again."}</p>}
     <div className="paper-stage">
       <div className="writing-paper" style={{ aspectRatio: page.ratio, width: `min(100%, ${Math.min(900, 880 * page.ratio)}px)` }}>

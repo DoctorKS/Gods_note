@@ -3,14 +3,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Download, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Pencil, Plus, ScanLine, Search, Trash2, X } from "lucide-react";
 import { cloudRepository, demoRepository, supabase } from "../lib/repository";
-import { assertNoteNameAvailable, type Collection, type Library, type Note, type NoteRepository } from "../lib/models";
+import { assertNoteNameAvailable, buddhistYear, LAST_BUDDHIST_YEAR, yearTitle, type Collection, type Library, type Note, type NoteRepository } from "../lib/models";
 import { Dialog, MediaImage, PreviewSheet } from "./ui";
 
 const BatchImport = dynamic(() => import("./batch-import").then((module) => module.BatchImport));
 const NoteEditor = dynamic(() => import("./note-editor").then((module) => module.NoteEditor));
+const WoundUpload = dynamic(() => import("./wound-upload").then((module) => module.WoundUpload));
+const BackupDialog = dynamic(() => import("./backup-dialog").then((module) => module.BackupDialog));
 const titleOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const tableKey = (group: Collection) => group.year === undefined ? group.id : `year-${group.year}`;
 
 export function NoteWorkspace() {
   const [session, setSession] = useState<Session | null>();
@@ -80,8 +83,10 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<"name" | "date">("date");
   const [ascending, setAscending] = useState(false);
-  const [collection, setCollection] = useState("");
-  const [modal, setModal] = useState<"collection" | "blank" | "batch">();
+  const [currentYear] = useState(() => buddhistYear());
+  const currentYearKey = `year-${currentYear}`;
+  const [collection, setCollection] = useState(currentYearKey);
+  const [modal, setModal] = useState<"collection" | "blank" | "upload" | "batch" | "wound" | "backup">();
   const [openNote, setOpenNote] = useState<Note>();
   const [documentAction, setDocumentAction] = useState<{ kind: "menu" | "rename" | "delete"; note: Note }>();
   const [scrollPosition, setScrollPosition] = useState(0);
@@ -126,7 +131,10 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   }
 
   const collections = library?.collections ?? [];
-  const shownGroups = collections.filter(({ id }) => (!collection || id === collection) && (!query.trim() || visible.has(id)));
+  const currentYearTable = collections.find(({ year }) => year === currentYear);
+  const activeTable = collections.find((group) => tableKey(group) === collection);
+  const destination = collection ? activeTable : currentYearTable ?? collections[0];
+  const shownGroups = collections.filter((group) => (!collection || tableKey(group) === collection) && (!query.trim() || visible.has(group.id)));
   const visibleCount = shownGroups.reduce((count, group) => count + (visible.get(group.id)?.length ?? 0), 0);
 
   const renameDialog = documentAction?.kind === "rename" && <RenameDialog note={documentAction.note} onClose={() => setDocumentAction(undefined)} onSubmit={async (title) => {
@@ -155,7 +163,8 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         <span className="eyebrow">WORKSPACE</span>
         <button className={collection ? "sidebar-item" : "sidebar-item selected"} onClick={() => setCollection("")}><Grid2X2 size={17} /> All notes</button>
         <div className="sidebar-heading"><span className="eyebrow">TABLES</span><button className="icon-button" aria-label="Add a table" onClick={() => setModal("collection")} disabled={!library}><Plus size={17} /></button></div>
-        {collections.map((group) => <button key={group.id} className={collection === group.id ? "sidebar-item selected" : "sidebar-item"} onClick={() => setCollection(group.id)}><Folder size={17} /> <span>{group.title}</span></button>)}
+        {library && !currentYearTable && <button className={collection === currentYearKey ? "sidebar-item selected" : "sidebar-item"} onClick={() => setCollection(currentYearKey)}><Folder size={17} /> <span>{yearTitle(currentYear)}</span></button>}
+        {collections.map((group) => <button key={group.id} className={collection === tableKey(group) ? "sidebar-item selected" : "sidebar-item"} onClick={() => setCollection(tableKey(group))}><Folder size={17} /> <span>{group.title}</span></button>)}
         <div className="sidebar-footer">
           {supabase ? <button className="sidebar-item" onClick={async () => {
             if (!supabase) return;
@@ -167,10 +176,11 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
       </aside>
       <main className="library-main">
         <section className="library-heading">
-          <div><span className="eyebrow blue-label">YOUR NOTEBOOK LIBRARY</span><h1>My notes</h1><p>Collect, scan, and write in one place.</p></div>
+          <div><span className="eyebrow blue-label">YOUR NOTEBOOK LIBRARY</span><h1>My notes</h1><p>{activeTable?.title ?? (library && collection === currentYearKey ? yearTitle(currentYear) : "Collect, scan, and write in one place.")}</p></div>
           <div className="heading-actions">
-            <button className="button secondary" disabled={!collections.length} onClick={() => { setNotice(""); setModal("blank"); }}><FilePlus2 size={17} /> Blank note</button>
-            <button className="button primary" disabled={!collections.length} onClick={() => { setNotice(""); setModal("batch"); }}><Plus size={19} /> Add documents</button>
+            <button className="button secondary" disabled={!library?.notes.length} onClick={() => setModal("backup")}><Download size={17} /> Backup</button>
+            <button className="button secondary" disabled={!destination} onClick={() => { setNotice(""); setModal("blank"); }}><FilePlus2 size={17} /> Blank note</button>
+            <button className="button primary" disabled={!library} onClick={() => { setNotice(""); setModal("upload"); }}><Plus size={19} /> Add documents</button>
           </div>
         </section>
         {notice && <p className="notice" role="status">{notice}<button className="icon-button" onClick={() => setNotice("")} aria-label="Dismiss message"><X size={16} /></button></p>}
@@ -211,11 +221,11 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
           </>}
       </main>
     </div>
-    {(modal === "collection" || modal === "blank") && <CreateDialog kind={modal} collections={collections} destination={collection} onClose={() => setModal(undefined)} onSubmit={async (title, collectionId, id) => {
+    {(modal === "collection" || modal === "blank") && <CreateDialog kind={modal} collections={collections} currentYear={currentYear} destination={destination?.id} onClose={() => setModal(undefined)} onSubmit={async (title, collectionId, id, year) => {
       if (modal === "collection") {
-        const group = await repository.createCollection({ id, title });
+        const group = await repository.createCollection({ id, title, year });
         setLibrary((current) => current && ({ ...current, collections: [...current.collections.filter((entry) => entry.id !== group.id), group] }));
-        setCollection(group.id);
+        setCollection(tableKey(group));
         setQuery("");
       } else {
         assertNoteNameAvailable(library?.notes ?? [], title, id);
@@ -225,11 +235,22 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
       }
       setModal(undefined);
     }} />}
-    {modal === "batch" && <BatchImport collections={collections} notes={library?.notes ?? []} destination={collection} repository={repository}
+    {modal === "upload" && <Dialog title="Add documents" description="Choose how to add pages to your library." onClose={() => setModal(undefined)}>
+      <div className="document-actions">
+        <button className="button secondary" disabled={!destination} onClick={() => setModal("batch")}><ScanLine size={17} /> Upload documents</button>
+        <button className="button secondary" disabled={!library?.notes.length} onClick={() => setModal("wound")}><Images size={17} /> Upload wound photos</button>
+      </div>
+      {!destination && <p className="muted">Add the year table first to upload a new document.</p>}
+    </Dialog>}
+    {modal === "batch" && <BatchImport collections={collections} notes={library?.notes ?? []} destination={destination?.id ?? ""} repository={repository}
       onSaved={addNote} onClose={() => setModal(undefined)} onDone={(count, collectionId) => {
-        setModal(undefined); setQuery(""); setCollection(collectionId);
+        const group = collections.find(({ id }) => id === collectionId);
+        setModal(undefined); setQuery(""); if (group) setCollection(tableKey(group));
         setNotice(`${count} ${count === 1 ? "document" : "documents"} saved.`);
       }} />}
+    {modal === "wound" && library && <WoundUpload library={library} repository={repository} destination={destination?.id}
+      onClose={() => setModal(undefined)} onDone={(note) => { setModal(undefined); showNote(note); }} />}
+    {modal === "backup" && library && <BackupDialog library={library} repository={repository} onClose={() => setModal(undefined)} />}
     {documentAction?.kind === "menu" && <Dialog title={documentAction.note.title} description="Document actions" onClose={() => setDocumentAction(undefined)}>
       <div className="document-actions">
         <button className="button secondary" onClick={() => setDocumentAction({ kind: "rename", note: documentAction.note })}><Pencil size={17} /> Rename</button>
@@ -306,37 +327,42 @@ function DeleteDialog({ note, onClose, onConfirm }: { note: Note; onClose: () =>
   </Dialog>;
 }
 
-function CreateDialog({ kind, collections, destination, onClose, onSubmit }: {
+function CreateDialog({ kind, collections, currentYear, destination, onClose, onSubmit }: {
   kind: "collection" | "blank";
   collections: Collection[];
-  destination: string;
+  currentYear: number;
+  destination?: string;
   onClose: () => void;
-  onSubmit: (title: string, collectionId: string, id: string) => Promise<void>;
+  onSubmit: (title: string, collectionId: string, id: string, year?: number) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [id] = useState(() => crypto.randomUUID());
   const isTable = kind === "collection";
+  const years = Array.from({ length: Math.max(0, LAST_BUDDHIST_YEAR - currentYear + 1) }, (_, offset) => currentYear + offset);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const data = new FormData(event.currentTarget);
-    const title = String(data.get("title")).trim();
+    const year = isTable ? Number(data.get("year")) : undefined;
+    const title = year ? yearTitle(year) : String(data.get("title") ?? "").trim();
     if (!title) { setError("Enter a name."); return; }
     setError("");
     setBusy(true);
-    try { await onSubmit(title, String(data.get("collection") ?? ""), id); }
+    try { await onSubmit(title, String(data.get("collection") ?? ""), id, year); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save."); }
     finally { setBusy(false); }
   }
 
   return <Dialog title={isTable ? "Add table" : "New blank note"} description={isTable ? "Create a new group for your notes." : "Start writing on a blank page."} onClose={onClose} busy={busy}>
     <form className="form-stack" onSubmit={submit}>
-      <label>{isTable ? "Table name" : "Note name"}<input name="title" autoFocus required maxLength={isTable ? 100 : 160} placeholder={isTable ? "e.g. Study notes" : "e.g. Lecture notes"} /></label>
+      {isTable ? <label>ปี พ.ศ.<select name="year" aria-label="ปี พ.ศ." autoFocus required defaultValue={currentYear}>
+        {years.map((year) => <option key={year} value={year}>{yearTitle(year)}</option>)}
+      </select></label> : <label>Note name<input name="title" autoFocus required maxLength={160} placeholder="e.g. Lecture notes" /></label>}
       {!isTable && <label>Table<select name="collection" aria-label="Table" defaultValue={destination || collections[0]?.id} required>{collections.map((group) => <option key={group.id} value={group.id}>{group.title}</option>)}</select></label>}
       {error && <p className="form-error" role="alert">{error}</p>}
-      <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? "Saving…" : "Create"}</button></div>
+      <div className="dialog-actions"><button type="button" className="button secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="button primary" disabled={busy || (isTable && years.length === 0)}>{busy ? "Saving…" : "Create"}</button></div>
     </form>
   </Dialog>;
 }
