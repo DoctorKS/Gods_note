@@ -10,7 +10,9 @@ const bangkokYear = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Bangkok",
 export const buddhistYear = (date = new Date()) => Number(bangkokYear.format(date)) + 543;
 export const yearTitle = (year: number) => `พ.ศ. ${year}`;
 
-export type Collection = { id: string; title: string; year?: number };
+export type Collection = { id: string; title: string; year?: number; trashedAt?: string };
+
+export const YEAR_TABLE_IN_TRASH = "This year's table is in Trash. Restore it to use it again.";
 
 export type Note = {
   id: string;
@@ -61,6 +63,7 @@ export type Library = { collections: Collection[]; notes: Note[] };
 export interface NoteRepository {
   list(): Promise<Library>;
   createCollection(collection: Collection): Promise<Collection>;
+  setCollectionTrashed(id: string, trashed: boolean): Promise<Collection>;
   createNote(note: NewNote): Promise<Note>;
   renameNote(id: string, title: string): Promise<void>;
   deleteNote(id: string): Promise<void>;

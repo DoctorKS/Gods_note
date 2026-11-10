@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
-import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Download, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Pencil, Plus, ScanLine, Search, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, Cloud, Download, Ellipsis, FilePlus2, Folder, FolderOpen, Grid2X2, Images, LogOut, Pencil, Plus, RotateCcw, ScanLine, Search, Trash2, X } from "lucide-react";
 import { cloudRepository, demoRepository, supabase } from "../lib/repository";
 import { assertNoteNameAvailable, buddhistYear, LAST_BUDDHIST_YEAR, yearTitle, type Collection, type Library, type Note, type NoteRepository } from "../lib/models";
 import { Dialog, MediaImage, PreviewSheet } from "./ui";
@@ -86,8 +86,9 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
   const [currentYear] = useState(() => buddhistYear());
   const currentYearKey = `year-${currentYear}`;
   const [collection, setCollection] = useState(currentYearKey);
-  const [modal, setModal] = useState<"collection" | "blank" | "upload" | "batch" | "wound" | "backup">();
+  const [modal, setModal] = useState<"collection" | "blank" | "upload" | "batch" | "wound" | "backup" | "trash">();
   const [openNote, setOpenNote] = useState<Note>();
+  const [tableToTrash, setTableToTrash] = useState<Collection>();
   const [documentAction, setDocumentAction] = useState<{ kind: "menu" | "rename" | "delete"; note: Note }>();
   const [scrollPosition, setScrollPosition] = useState(0);
   const [notice, setNotice] = useState("");
@@ -103,10 +104,17 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
     setLibrary((current) => current && ({ ...current, notes: [...current.notes.filter(({ id }) => id !== note.id), note] }));
   }, []);
 
+  const activeLibrary = useMemo(() => {
+    if (!library) return undefined;
+    const collections = library.collections.filter((group) => !group.trashedAt);
+    const activeIds = new Set(collections.map(({ id }) => id));
+    return { collections, notes: library.notes.filter((note) => activeIds.has(note.collectionId)) };
+  }, [library]);
+
   const visible = useMemo(() => {
     const groups = new Map<string, Note[]>();
     const text = query.trim().toLocaleLowerCase();
-    for (const note of library?.notes ?? []) {
+    for (const note of activeLibrary?.notes ?? []) {
       if (text && !note.title.toLocaleLowerCase().includes(text)) continue;
       const notes = groups.get(note.collectionId) ?? [];
       notes.push(note);
@@ -117,7 +125,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
       return (ascending ? order : -order) || first.id.localeCompare(second.id);
     });
     return groups;
-  }, [library, query, sort, ascending]);
+  }, [activeLibrary, query, sort, ascending]);
 
   function showNote(note: Note) {
     setScrollPosition(window.scrollY);
@@ -130,12 +138,28 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
     requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
   }
 
-  const collections = library?.collections ?? [];
+  const collections = activeLibrary?.collections ?? [];
+  const trash = library?.collections.filter((group) => group.trashedAt) ?? [];
   const currentYearTable = collections.find(({ year }) => year === currentYear);
   const activeTable = collections.find((group) => tableKey(group) === collection);
   const destination = collection ? activeTable : currentYearTable ?? collections[0];
   const shownGroups = collections.filter((group) => (!collection || tableKey(group) === collection) && (!query.trim() || visible.has(group.id)));
   const visibleCount = shownGroups.reduce((count, group) => count + (visible.get(group.id)?.length ?? 0), 0);
+
+  async function setTableTrashed(table: Collection, trashed: boolean) {
+    const updated = await repository.setCollectionTrashed(table.id, trashed);
+    setLibrary((current) => current && ({ ...current, collections: current.collections.map((group) => group.id === updated.id ? updated : group) }));
+    if (trashed) {
+      if (collection === tableKey(table)) { setCollection(currentYearKey); setQuery(""); }
+      setTableToTrash(undefined);
+      setNotice("Table moved to Trash.");
+    } else {
+      setCollection(tableKey(updated));
+      setQuery("");
+      setModal(undefined);
+      setNotice("Table restored.");
+    }
+  }
 
   const renameDialog = documentAction?.kind === "rename" && <RenameDialog note={documentAction.note} onClose={() => setDocumentAction(undefined)} onSubmit={async (title) => {
     const { id } = documentAction.note;
@@ -178,7 +202,8 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         <section className="library-heading">
           <div><span className="eyebrow blue-label">YOUR NOTEBOOK LIBRARY</span><h1>My notes</h1><p>{activeTable?.title ?? (library && collection === currentYearKey ? yearTitle(currentYear) : "Collect, scan, and write in one place.")}</p></div>
           <div className="heading-actions">
-            <button className="button secondary" disabled={!library?.notes.length} onClick={() => setModal("backup")}><Download size={17} /> Backup</button>
+            <button className="button secondary" disabled={!activeLibrary?.notes.length} onClick={() => setModal("backup")}><Download size={17} /> Backup</button>
+            <button className="button secondary" disabled={!library} onClick={() => setModal("trash")}><Trash2 size={17} /> Trash{trash.length > 0 && <span className="count-badge">{trash.length}</span>}</button>
             <button className="button secondary" disabled={!destination} onClick={() => { setNotice(""); setModal("blank"); }}><FilePlus2 size={17} /> Blank note</button>
             <button className="button primary" disabled={!library} onClick={() => { setNotice(""); setModal("upload"); }}><Plus size={19} /> Add documents</button>
           </div>
@@ -204,7 +229,12 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
               {shownGroups.map((group) => {
                 const notes = visible.get(group.id) ?? [];
                 return <section className="collection" key={group.id} aria-label={group.title}>
-                  <div className="collection-heading"><span className="folder-icon"><Folder size={16} /></span><h2>{group.title}</h2><span className="count-badge">{notes.length}</span></div>
+                  <div className="collection-heading">
+                    <span className="folder-icon"><Folder size={16} /></span><h2>{group.title}</h2><span className="count-badge">{notes.length}</span>
+                    <button className="button text-button table-trash-button" type="button" aria-label={`Move ${group.title} to Trash`} onClick={() => setTableToTrash(group)}>
+                      <Trash2 size={16} /> Move to Trash
+                    </button>
+                  </div>
                   {notes.length > 0 ? <div className="note-grid">{notes.map((note) =>
                     <div className="note-tile" key={note.id}>
                       <button className="note-card" type="button" title={note.title} onClick={() => showNote(note)}>
@@ -238,7 +268,7 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
     {modal === "upload" && <Dialog title="Add documents" description="Choose how to add pages to your library." onClose={() => setModal(undefined)}>
       <div className="document-actions">
         <button className="button secondary" disabled={!destination} onClick={() => setModal("batch")}><ScanLine size={17} /> Upload documents</button>
-        <button className="button secondary" disabled={!library?.notes.length} onClick={() => setModal("wound")}><Images size={17} /> Upload wound photos</button>
+        <button className="button secondary" disabled={!activeLibrary?.notes.length} onClick={() => setModal("wound")}><Images size={17} /> Upload wound photos</button>
       </div>
       {!destination && <p className="muted">Add the year table first to upload a new document.</p>}
     </Dialog>}
@@ -248,9 +278,14 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
         setModal(undefined); setQuery(""); if (group) setCollection(tableKey(group));
         setNotice(`${count} ${count === 1 ? "document" : "documents"} saved.`);
       }} />}
-    {modal === "wound" && library && <WoundUpload library={library} repository={repository} destination={destination?.id}
+    {modal === "wound" && activeLibrary && <WoundUpload library={activeLibrary} repository={repository} destination={destination?.id}
       onClose={() => setModal(undefined)} onDone={(note) => { setModal(undefined); showNote(note); }} />}
-    {modal === "backup" && library && <BackupDialog library={library} repository={repository} onClose={() => setModal(undefined)} />}
+    {modal === "backup" && activeLibrary && <BackupDialog library={activeLibrary} repository={repository} onClose={() => setModal(undefined)} />}
+    {modal === "trash" && library && <TrashDialog tables={trash} notes={library.notes} onClose={() => setModal(undefined)}
+      onRestore={(table) => setTableTrashed(table, false)} />}
+    {tableToTrash && <ConfirmRemoveDialog title="Move table to Trash?"
+      description={`“${tableToTrash.title}” and its documents will move to Trash. You can restore the whole table there.`}
+      action="Move to Trash" pending="Moving…" onClose={() => setTableToTrash(undefined)} onConfirm={() => setTableTrashed(tableToTrash, true)} />}
     {documentAction?.kind === "menu" && <Dialog title={documentAction.note.title} description="Document actions" onClose={() => setDocumentAction(undefined)}>
       <div className="document-actions">
         <button className="button secondary" onClick={() => setDocumentAction({ kind: "rename", note: documentAction.note })}><Pencil size={17} /> Rename</button>
@@ -258,14 +293,52 @@ function Workspace({ repository, email }: { repository: NoteRepository; email?: 
       </div>
     </Dialog>}
     {renameDialog}
-    {documentAction?.kind === "delete" && <DeleteDialog note={documentAction.note} onClose={() => setDocumentAction(undefined)} onConfirm={async () => {
-      const { id } = documentAction.note;
-      await repository.deleteNote(id);
-      setLibrary((current) => current && ({ ...current, notes: current.notes.filter((note) => note.id !== id) }));
-      setDocumentAction(undefined);
-      setNotice("Document deleted.");
-    }} />}
+    {documentAction?.kind === "delete" && <ConfirmRemoveDialog title="Delete document?"
+      description={`“${documentAction.note.title}” and its pages will be permanently deleted.`}
+      action="Delete document" pending="Deleting…" onClose={() => setDocumentAction(undefined)} onConfirm={async () => {
+        const { id } = documentAction.note;
+        await repository.deleteNote(id);
+        setLibrary((current) => current && ({ ...current, notes: current.notes.filter((note) => note.id !== id) }));
+        setDocumentAction(undefined);
+        setNotice("Document deleted.");
+      }} />}
   </div>;
+}
+
+function TrashDialog({ tables, notes, onClose, onRestore }: {
+  tables: Collection[];
+  notes: Note[];
+  onClose: () => void;
+  onRestore: (table: Collection) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  async function restore(table: Collection) {
+    if (busy) return;
+    setBusy(table.id);
+    setError("");
+    try { await onRestore(table); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not restore this table."); }
+    finally { setBusy(""); }
+  }
+
+  return <Dialog title="Trash" description="Restore a table to return it and its documents to the library." onClose={onClose} busy={Boolean(busy)}>
+    {tables.length === 0 ? <p className="muted">Trash is empty.</p> : <ul className="trash-list">
+      {tables.map((table) => {
+        const count = notes.filter((note) => note.collectionId === table.id).length;
+        return <li key={table.id}>
+          <span className="folder-icon"><Folder size={16} /></span>
+          <div className="trash-table-name"><strong>{table.title}</strong><small>{count} {count === 1 ? "document" : "documents"}</small></div>
+          <button className="button secondary" disabled={Boolean(busy)} aria-label={`Restore ${table.title}`} onClick={() => void restore(table)}>
+            <RotateCcw size={16} /> {busy === table.id ? "Restoring…" : "Restore"}
+          </button>
+        </li>;
+      })}
+    </ul>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    <div className="dialog-actions"><button className="button secondary" disabled={Boolean(busy)} onClick={onClose}>Close</button></div>
+  </Dialog>;
 }
 
 function RenameDialog({ note, onClose, onSubmit }: {
@@ -303,7 +376,14 @@ function RenameDialog({ note, onClose, onSubmit }: {
   </Dialog>;
 }
 
-function DeleteDialog({ note, onClose, onConfirm }: { note: Note; onClose: () => void; onConfirm: () => Promise<void> }) {
+function ConfirmRemoveDialog({ title, description, action, pending, onClose, onConfirm }: {
+  title: string;
+  description: string;
+  action: string;
+  pending: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -313,16 +393,16 @@ function DeleteDialog({ note, onClose, onConfirm }: { note: Note; onClose: () =>
     setBusy(true);
     try { await onConfirm(); }
     catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not delete this document.");
+      setError(cause instanceof Error ? cause.message : "Could not complete the action.");
       setBusy(false);
     }
   }
 
-  return <Dialog title="Delete document?" description={`“${note.title}” and its pages will be permanently deleted.`} onClose={onClose} busy={busy}>
+  return <Dialog title={title} description={description} onClose={onClose} busy={busy}>
     {error && <p className="form-error" role="alert">{error}</p>}
     <div className="dialog-actions">
       <button className="button secondary" autoFocus disabled={busy} onClick={onClose}>Cancel</button>
-      <button className="button danger" disabled={busy} onClick={() => void confirm()}>{busy ? "Deleting…" : "Delete document"}</button>
+      <button className="button danger" disabled={busy} onClick={() => void confirm()}>{busy ? pending : action}</button>
     </div>
   </Dialog>;
 }

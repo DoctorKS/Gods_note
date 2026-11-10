@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { get, update } from "idb-keyval";
 import {
   A4_HEIGHT, A4_WIDTH, assertNoteNameAvailable, DEFAULT_PAGE_RATIO, DuplicateNoteNameError,
-  MAX_BATCH_IMAGES, MAX_UPLOAD_BYTES, MAX_WOUND_BYTES,
+  MAX_BATCH_IMAGES, MAX_UPLOAD_BYTES, MAX_WOUND_BYTES, YEAR_TABLE_IN_TRASH,
   type Collection, type Library, type Note, type NotePage, type NoteRepository, type WoundPhoto,
 } from "./models";
 
@@ -12,13 +12,13 @@ const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 export const supabase = projectUrl && publishableKey ? createClient(projectUrl, publishableKey) : null;
 
 type NoteRow = { id: string; collection_id: string; title: string; created_at: string; cover_path: string | null; deleted_at: string | null };
-type CollectionRow = { id: string; title: string; buddhist_year: number | null };
+type CollectionRow = { id: string; title: string; buddhist_year: number | null; trashed_at: string | null };
 type PageRow = { page_number: number; kind: NotePage["kind"]; image_path: string | null; page_ratio: number; strokes: NotePage["strokes"] };
 type ApiError = { message: string; code?: string };
-const collectionColumns = "id,title,buddhist_year";
+const collectionColumns = "id,title,buddhist_year,trashed_at";
 
-function fromCollectionRow({ id, title, buddhist_year }: CollectionRow): Collection {
-  return { id, title, year: buddhist_year ?? undefined };
+function fromCollectionRow({ id, title, buddhist_year, trashed_at }: CollectionRow): Collection {
+  return { id, title, year: buddhist_year ?? undefined, trashedAt: trashed_at ?? undefined };
 }
 
 function validateWoundPhotos(photos: WoundPhoto[]) {
@@ -101,7 +101,13 @@ export function cloudRepository(owner: string): NoteRepository {
         .upsert(row, { onConflict: "owner_id,buddhist_year", ignoreDuplicates: true }).select(collectionColumns).maybeSingle();
       if (result.error) throw new Error(result.error.message);
       if (result.data) return fromCollectionRow(result.data);
-      return fromCollectionRow(unwrap<CollectionRow>(await client.from("collections").select(collectionColumns).eq("buddhist_year", collection.year).single()));
+      const existing = fromCollectionRow(unwrap<CollectionRow>(await client.from("collections").select(collectionColumns).eq("buddhist_year", collection.year).single()));
+      if (existing.trashedAt) throw new Error(YEAR_TABLE_IN_TRASH);
+      return existing;
+    },
+    async setCollectionTrashed(id, trashed) {
+      return fromCollectionRow(unwrap<CollectionRow>(await client.from("collections")
+        .update({ trashed_at: trashed ? new Date().toISOString() : null }).eq("id", id).select(collectionColumns).single()));
     },
     async createNote(note) {
       if ([note.image, note.thumbnail].some((image) => image && image.size > MAX_UPLOAD_BYTES)) {
@@ -214,11 +220,24 @@ export const demoRepository: NoteRepository = {
     await update<DemoLibrary>(demoKey, (stored) => {
       const library = stored ?? createDemoLibrary();
       const existing = library.collections.find((group) => group.year !== undefined && group.year === collection.year);
+      if (existing?.trashedAt) throw new Error(YEAR_TABLE_IN_TRASH);
       if (existing) { result = existing; return library; }
       library.collections = [...library.collections.filter(({ id }) => id !== collection.id), collection];
       return library;
     });
     return result;
+  },
+  async setCollectionTrashed(id, trashed) {
+    let table: Collection | undefined;
+    await update<DemoLibrary>(demoKey, (stored) => {
+      const library = stored ?? createDemoLibrary();
+      table = library.collections.find((group) => group.id === id);
+      if (!table) throw new Error("This table could not be found.");
+      table.trashedAt = trashed ? new Date().toISOString() : undefined;
+      return library;
+    });
+    if (!table) throw new Error("This table could not be found.");
+    return table;
   },
   async createNote(input) {
     const wounds = input.wounds ?? [];
