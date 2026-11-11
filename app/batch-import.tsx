@@ -195,6 +195,10 @@ export function BatchImport({ collections, notes, destination, repository, onClo
   </Dialog>;
 }
 
+const MAGNIFIER_ZOOM = 4;
+const MAGNIFIER_SIZE = 120;
+const MAGNIFIER_GAP = 14;
+
 function CropPreview({ source, corners, repository, disabled, onChange }: {
   source: PreparedImage;
   corners: Corners;
@@ -203,7 +207,48 @@ function CropPreview({ source, corners, repository, disabled, onChange }: {
   onChange: (corners: Corners) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
+  const [magnifier, setMagnifier] = useState<CSSProperties>();
   const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+  function updateMagnifier(event: PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || (event.pointerType === "touch" && !event.buttons)) return;
+    const element = event.currentTarget;
+    const image = element.querySelector("img");
+    const bounds = element.closest(".scan-comparison")?.getBoundingClientRect();
+    if (!image?.naturalWidth || !bounds) return;
+
+    const rect = element.getBoundingClientRect();
+    const x = Math.min(rect.width, Math.max(0, event.clientX - rect.left));
+    const y = Math.min(rect.height, Math.max(0, event.clientY - rect.top));
+    const right = x + MAGNIFIER_GAP;
+    const left = right + MAGNIFIER_SIZE <= bounds.right - rect.left ? right : x - MAGNIFIER_GAP - MAGNIFIER_SIZE;
+    const center = MAGNIFIER_SIZE / 2;
+    setMagnifier({
+      width: MAGNIFIER_SIZE,
+      height: MAGNIFIER_SIZE,
+      left: Math.max(bounds.left - rect.left, left),
+      top: Math.max(bounds.top - rect.top, Math.min(y - center, bounds.bottom - rect.top - MAGNIFIER_SIZE)),
+      backgroundImage: `url("${image.currentSrc}")`,
+      backgroundSize: `${rect.width * MAGNIFIER_ZOOM}px ${rect.height * MAGNIFIER_ZOOM}px`,
+      backgroundPosition: `${center - x * MAGNIFIER_ZOOM}px ${center - y * MAGNIFIER_ZOOM}px`,
+    });
+  }
+
+  function startMagnifier(event: PointerEvent<HTMLDivElement>) {
+    if (event.isPrimary && event.pointerType !== "mouse" && event.target === event.currentTarget) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    updateMagnifier(event);
+  }
+
+  function hideMagnifier(event: PointerEvent<HTMLDivElement>) {
+    if (event.isPrimary) setMagnifier(undefined);
+  }
+
+  function endMagnifierContact(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse") hideMagnifier(event);
+  }
+
   function replaceCorner(index: number, point: Point) {
     const next: Corners = [...corners];
     next[index] = { x: clamp(point.x), y: clamp(point.y) };
@@ -228,7 +273,9 @@ function CropPreview({ source, corners, repository, disabled, onChange }: {
   }
 
   const names = ["top left", "top right", "bottom right", "bottom left"];
-  return <div className="crop-frame" ref={frame} style={{ aspectRatio: source.ratio, "--photo-ratio": source.ratio } as CSSProperties}>
+  return <div className="crop-frame" ref={frame} style={{ aspectRatio: source.ratio, "--photo-ratio": source.ratio } as CSSProperties}
+    onPointerEnter={updateMagnifier} onPointerMove={updateMagnifier} onPointerDown={startMagnifier}
+    onPointerLeave={hideMagnifier} onPointerCancel={hideMagnifier} onPointerUp={endMagnifierContact} onLostPointerCapture={endMagnifierContact}>
     <MediaImage source={source.original} repository={repository} className="crop-photo" />
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" className="crop-outline">
       <polygon points={corners.map(({ x, y }) => `${x * 100},${y * 100}`).join(" ")} vectorEffect="non-scaling-stroke" />
@@ -237,5 +284,6 @@ function CropPreview({ source, corners, repository, disabled, onChange }: {
       style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
       onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
       onPointerMove={(event) => move(event, index)} onKeyDown={(event) => keyMove(event, index)} />)}
+    {magnifier && <div aria-hidden="true" className="crop-magnifier" style={magnifier}><span>{MAGNIFIER_ZOOM}×</span></div>}
   </div>;
 }
